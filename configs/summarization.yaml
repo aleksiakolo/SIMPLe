@@ -1,0 +1,12 @@
+model_name: "facebook/bart-large-cnn"  # Choose from "facebook/bart-large-cnn", "t5-small", "legal-bert-model-name"
+task_type: "summarization"
+
+trainer:
+  lr: 3e-5
+  lr_step_size: 10
+  lr_gamma: 0.1
+
+params:
+  logging_frequency: 10
+  max_output_length: 150
+  num_beams: 4
