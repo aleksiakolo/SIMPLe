@@ -1,6 +1,6 @@
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoModel
-from .base_model import LitBaseModel
+from base_model import LitBaseModel
 
 class RephraseTranslateModel(LitBaseModel):
     def __init__(self, cfg):

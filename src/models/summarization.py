@@ -1,6 +1,6 @@
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoModel
-from .base_model import LitBaseModel
+from base_model import LitBaseModel
 
 class BARTSummarizationModel(LitBaseModel):
     def _build_model(self):
