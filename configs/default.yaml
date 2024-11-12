@@ -2,7 +2,7 @@ defaults:
   - task: rephrase_translate  # choose from summarization, translation, or rephrase_translate
 
 trainer:
-  max_epochs: 5
+  max_epochs: 2
   gpus: 1  
 
 logging:
