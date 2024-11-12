@@ -18,16 +18,46 @@ def load_and_split_dataset(cfg):
     logger.info(f"Subset dataset size (10%): {len(small_ds)}")
     return small_ds
 
+# def preprocess_text(examples, cfg):
+#     """Preprocess text based on the configuration."""
+#     text = examples["translation"][cfg.dataset.source_lang]
+#     if cfg.preprocessing.lowercase:
+#         text = text.lower()
+#     if cfg.preprocessing.remove_non_alphanumeric:
+#         text = re.sub(r"[^a-zA-Z0-9\s]", "", text)
+#     if cfg.preprocessing.remove_extra_whitespace:
+#         text = re.sub(r"\s+", " ", text).strip()
+#     return {"text": text}
+
 def preprocess_text(examples, cfg):
-    """Preprocess text based on the configuration."""
-    text = examples["translation"][cfg.dataset.source_lang]
+    """Preprocess text for both source and target languages based on the configuration."""
+    source_lang = cfg.dataset.source_lang
+    target_lang = cfg.dataset.target_lang
+
+    # Preprocess source language text
+    source_text = examples["translation"][source_lang]
     if cfg.preprocessing.lowercase:
-        text = text.lower()
+        source_text = source_text.lower()
     if cfg.preprocessing.remove_non_alphanumeric:
-        text = re.sub(r"[^a-zA-Z0-9\s]", "", text)
+        source_text = re.sub(r"[^a-zA-Z0-9\s]", "", source_text)
     if cfg.preprocessing.remove_extra_whitespace:
-        text = re.sub(r"\s+", " ", text).strip()
-    return {"text": text}
+        source_text = re.sub(r"\s+", " ", source_text).strip()
+
+    # Preprocess target language text
+    target_text = examples["translation"][target_lang]
+    if cfg.preprocessing.lowercase:
+        target_text = target_text.lower()
+    if cfg.preprocessing.remove_non_alphanumeric:
+        # Preserve accented characters in Spanish by adding them to the regex pattern
+        target_text = re.sub(r"[^a-zA-ZáéíóúñÁÉÍÓÚÑ0-9\s]", "", target_text)
+    if cfg.preprocessing.remove_extra_whitespace:
+        target_text = re.sub(r"\s+", " ", target_text).strip()
+
+    # Return both preprocessed texts
+    return {
+        source_lang: source_text,
+        target_lang: target_text
+    }
 
 def apply_preprocessing(dataset, cfg):
     """Apply preprocessing to the dataset."""
@@ -40,12 +70,31 @@ def tokenize_dataset(dataset, cfg):
     tokenizer = AutoTokenizer.from_pretrained(cfg.tokenization.model_name)
     
     def tokenize_function(examples):
-        return tokenizer(
-            examples["text"],
+        source_lang = cfg.dataset.source_lang
+        target_lang = cfg.dataset.target_lang
+
+        # Tokenize both source and target language fields
+        source_tokens = tokenizer(
+            examples[source_lang],
             truncation=cfg.tokenization.truncation,
             padding=cfg.tokenization.padding,
             max_length=cfg.tokenization.max_length,
         )
+        
+        target_tokens = tokenizer(
+            examples[target_lang],
+            truncation=cfg.tokenization.truncation,
+            padding=cfg.tokenization.padding,
+            max_length=cfg.tokenization.max_length,
+        )
+        
+        # Return the tokenized version of both fields
+        return {
+            f"{source_lang}_input_ids": source_tokens["input_ids"],
+            f"{source_lang}_attention_mask": source_tokens["attention_mask"],
+            f"{target_lang}_input_ids": target_tokens["input_ids"],
+            f"{target_lang}_attention_mask": target_tokens["attention_mask"]
+        }
     
     logger.info("Applying tokenization to the dataset")
     return dataset.map(tokenize_function, batched=True)
@@ -88,56 +137,16 @@ def save_datasets(train_ds, validation_ds, test_ds, cfg):
 @hydra.main(config_path="../../configs", config_name="europarl")
 def main(cfg: DictConfig):
     small_ds = load_and_split_dataset(cfg)
+    print("SMALL:", small_ds[0])
     preprocessed_ds = apply_preprocessing(small_ds, cfg)
+    print("PREPROCESSED:", preprocessed_ds[0])
     tokenized_ds = tokenize_dataset(preprocessed_ds, cfg)
+    print("TOKENIZED:", tokenized_ds[0])
     train_ds, validation_ds, test_ds = split_dataset(tokenized_ds, cfg)
+    print("TRAIN:", train_ds[0])
+    print("VALIDATION:", validation_ds[0])
+    print("TEST:", test_ds[0])
     save_datasets(train_ds, validation_ds, test_ds, cfg)
 
 if __name__ == "__main__":
     main()
-
-
-
-# # Split off 10% of the dataset
-# small_ds = ep["train"].train_test_split(test_size=0.1, seed=42)["test"]
-# print(f"Original dataset size: {len(ep['train'])}")
-# print(f"Subset dataset size (10%): {len(small_ds)}")
-
-
-# def preprocess_text(examples):
-#     text = examples["translation"]["en"]  # Or change to "es" for Spanish
-#     # Lowercasing
-#     text = text.lower()
-#     # Removing non-alphanumeric characters
-#     text = re.sub(r"[^a-zA-Z0-9\s]", "", text)
-#     # Removing extra whitespace
-#     text = re.sub(r"\s+", " ", text).strip()
-#     return {"text": text}
-
-# # Apply preprocessing
-# small_ds = small_ds.map(preprocess_text, remove_columns=["translation"])
-
-# # Initialize tokenizer
-# tokenizer = AutoTokenizer.from_pretrained("t5-small")
-
-# # Define a function to tokenize the dataset
-# def tokenize_function(examples):
-#     return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=128)
-
-# # Apply tokenization
-# tokenized_small_ds = small_ds.map(tokenize_function, batched=True)
-
-# # First, we split the 10% subset into 90% train+validation and 10% test
-# train_validation_ds = small_ds.train_test_split(test_size=0.1, seed=42)
-# train_validation = train_validation_ds["train"]
-# test_ds = train_validation_ds["test"]
-
-# # Next, we split the 90% train+validation set into 80% train and 10% validation (relative to the original data)
-# train_val_split = train_validation.train_test_split(test_size=1/9, seed=42)
-# train_ds = train_val_split["train"]
-# validation_ds = train_val_split["test"]
-
-# # Print the sizes to confirm
-# print(f"Training set size: {len(train_ds)}")
-# print(f"Validation set size: {len(validation_ds)}")
-# print(f"Testing set size: {len(test_ds)}")
