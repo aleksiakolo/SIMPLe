@@ -1,0 +1,25 @@
+dataset:
+  name: "IWSLT/ted_talks_iwslt"
+  language_pair: ["en", "es"]  # Specify the language pair as a list
+  year: "2015"  
+  source: "en"  
+  target: "es" 
+  test_size: 0.1
+  val_size: 0.15
+  seed: 42
+
+preprocessing:
+  lowercase: true
+  remove_non_alphanumeric: true
+  remove_extra_whitespace: true
+
+tokenization:
+  model_name: ${model.params.name}
+  truncation: true
+  padding: "max_length"
+  max_length: 512
+  stride: 128
+
+output:
+  dir: "/Users/aleksia/Desktop/ted_talks_data"
+  save_format: "json"  # options: "json", "csv", or "parquet"

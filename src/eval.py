@@ -1,58 +1,74 @@
+import dataclasses
 import hydra
+import torch
+from hydra.utils import instantiate
+from loguru import logger
 from omegaconf import DictConfig
-import pytorch_lightning as pl
-from src.models.summarization import BARTSummarizationModel, LegalBERTSummarizationModel, T5SummarizationModel
-from src.models.translation import XLMRTranslationModel, T5TranslationModel
-from src.models.main import RephraseTranslateModel
+from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
+from src.utils.dataloader import get_dataloader
+from src.utils.utils import instantiate_loggers
 
-def get_model(cfg: DictConfig):
-    """Select and return the appropriate model based on task type and model name."""
-    if cfg.task == "summarization":
-        if "bart" in cfg.model_name:
-            return BARTSummarizationModel(cfg)
-        elif "t5" in cfg.model_name:
-            return T5SummarizationModel(cfg)
-        elif "legal-bert" in cfg.model_name:
-            return LegalBERTSummarizationModel(cfg)
-        else:
-            raise ValueError("Unsupported model for summarization.")
+
+@dataclasses.dataclass
+class Dataloaders:
+    dataload_eval_train: torch.utils.data.DataLoader
+    dataload_eval_val: torch.utils.data.DataLoader
+    dataload_eval_test: torch.utils.data.DataLoader
+
+
+def initialize(cfg: DictConfig):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
-    elif cfg.task == "translation":
-        if "t5" in cfg.model_name:
-            return T5TranslationModel(cfg)
-        elif "xlm-roberta" in cfg.model_name:
-            return XLMRTranslationModel(cfg)
-        else:
-            raise ValueError("Unsupported model for translation.")
+    # Instantiate model
+    model = instantiate(cfg.model).to(device)
     
-    elif cfg.task == "rephrase_translate":
-        return RephraseTranslateModel(cfg)
-    
+    # Load pretrained model from checkpoint if specified
+    if cfg.eval.checkpoint_path:
+        model = model.load_from_checkpoint(cfg.eval.checkpoint_path, cfg=cfg).to(device)
+        logger.info(f"Loaded pretrained model from {cfg.eval.checkpoint_path}")
     else:
-        raise ValueError("Unsupported task type specified in config.")
+        logger.warning("No checkpoint path specified. Using the model with default initialization.")
+    
+    # Instantiate logger
+    eval_logger = instantiate_loggers(cfg.get("logger"))
+    
+    # Create the PyTorch Lightning Trainer for evaluation
+    trainer = instantiate(cfg.trainer, logger=eval_logger, callbacks=[], enable_checkpointing=False)
+    
+    # Load evaluation dataloaders
+    dataload_eval_train = get_dataloader(cfg, split="train", batch_size=cfg.params.batch_size, shuffle=False)
+    dataload_eval_val = get_dataloader(cfg, split="val", batch_size=cfg.params.batch_size, shuffle=False)
+    dataload_eval_test = get_dataloader(cfg, split="test", batch_size=cfg.params.batch_size, shuffle=False)
+    
+    dataloaders = Dataloaders(dataload_eval_train, dataload_eval_val, dataload_eval_test)
+    return model, trainer, dataloaders, device
 
-@hydra.main(config_path="configs", config_name="default")
+
+def evaluate_model(cfg: DictConfig):
+    logger.info("Starting evaluate_model function...")
+    
+    # Initialize the components needed for evaluation
+    model, trainer, dataloaders, device = initialize(cfg)
+    
+    # Run evaluation on the validation and test sets
+    if dataloaders.dataload_eval_val:
+        logger.info("Evaluating on validation set...")
+        trainer.validate(model, dataloaders.dataload_eval_val)
+    
+    if dataloaders.dataload_eval_test:
+        logger.info("Evaluating on test set...")
+        trainer.test(model, dataloaders.dataload_eval_test)
+    
+    logger.info("Evaluation completed.")
+
+
+@hydra.main(version_base=None, config_path="../../configs", config_name="eval")
 def main(cfg: DictConfig):
-    # Initialize the model based on the configuration
-    model = get_model(cfg)
+    # Log the configuration for debugging
+    logger.info(f"Running evaluation with configuration: {cfg}")
+    evaluate_model(cfg)
 
-    # Load the trained model checkpoint if specified
-    if cfg.get("checkpoint_path"):
-        model = model.load_from_checkpoint(cfg.checkpoint_path, cfg=cfg)
-
-    # Configure PyTorch Lightning trainer for evaluation
-    trainer = pl.Trainer(
-        gpus=cfg.trainer.gpus,
-        precision=cfg.trainer.precision
-    )
-
-    # Evaluate the model on the test dataset
-    test_results = trainer.test(model)
-
-    # Print test results
-    print("Evaluation Results:")
-    for key, value in test_results[0].items():
-        print(f"{key}: {value}")
 
 if __name__ == "__main__":
     main()
