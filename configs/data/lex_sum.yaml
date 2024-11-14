@@ -20,5 +20,5 @@ tokenization:
   stride: 128
 
 output:
-  dir: "/Users/aleksia/Desktop/multi_lexsum_data"
+  dir: "/Users/ZincR/Desktop/multi_lexsum_data"
   save_format: "json"  # options: "json", "csv", or "parquet"

@@ -46,7 +46,7 @@ def initialize(cfg: DictConfig):
 
 def train_model(cfg: DictConfig):
     logger.info("Starting train_model function...")
-    
+
     # Initialize the components needed for training
     model, optimizer, scheduler, trainer, dataloaders, device = initialize(cfg)
     

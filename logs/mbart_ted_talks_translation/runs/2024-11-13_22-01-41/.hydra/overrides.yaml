@@ -1,0 +1,4 @@
+- model=mbart
+- data=ted_talks
+- name=mbart_ted_talks_output
+- task_name=mbart_ted_talks_translation

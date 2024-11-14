@@ -1,0 +1,4 @@
+- model=t5_translate
+- data=ted_talks
+- name=t5_translate_ted_talks_output
+- task_name=t5_translate_ted_talks_translation

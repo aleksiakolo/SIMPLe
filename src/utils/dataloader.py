@@ -82,7 +82,7 @@ class CorpusDataset:
         """Split the dataset into train, validation, and test sets."""
         logger.info("Splitting the dataset into training, validation, and test sets")
 
-        train_split = dataset["train"]
+        train_split = dataset
 
         # Create the test split
         train_test_split = train_split.train_test_split(test_size=self.cfg.dataset.test_size, seed=self.cfg.dataset.seed)
@@ -140,8 +140,9 @@ class EuroParlDataset(CorpusDataset):
         super().__init__(cfg)
 
     def load_dataset(self):
-        logger.info(f"Loading EuroParl dataset: {self.cfg.dataset.name} with language pair {self.cfg.dataset.language_pair}")
-        return load_dataset(self.cfg.dataset.name, self.cfg.dataset.language_pair)
+        logger.info(f"Loading 1% of EuroParl dataset: {self.cfg.dataset.name} with language pair {self.cfg.dataset.language_pair}")
+        subset_str = f"train[:{1}%]"
+        return load_dataset(self.cfg.dataset.name, self.cfg.dataset.language_pair, split=subset_str)
     
 class TedTalksDataset(CorpusDataset):
     def __init__(self, cfg):

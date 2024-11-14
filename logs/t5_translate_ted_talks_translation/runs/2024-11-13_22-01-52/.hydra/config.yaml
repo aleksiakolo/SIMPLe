@@ -1,0 +1,130 @@
+name: t5_translate_ted_talks_output
+task_name: t5_translate_ted_talks_translation
+train: true
+test: true
+ckpt_path: null
+seed: 42
+params:
+  batch_size: 8
+  learning_rate: 0.001
+  num_epochs: 10
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 0.001
+  weight_decay: 0.0
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  mode: min
+  factor: 0.1
+  patience: 5
+run:
+  dir: ${paths.log_dir}/${task_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+data:
+  dataset:
+    name: IWSLT/ted_talks_iwslt
+    language_pair:
+    - en
+    - es
+    year: '2015'
+    source: en
+    target: es
+    test_size: 0.1
+    val_size: 0.15
+    seed: 42
+  preprocessing:
+    lowercase: true
+    remove_non_alphanumeric: true
+    remove_extra_whitespace: true
+  tokenization:
+    model_name: ${model.params.name}
+    truncation: true
+    padding: max_length
+    max_length: 512
+    stride: 128
+  output:
+    dir: /Users/ZincR/Desktop/ted_talks_data
+    save_format: json
+model:
+  _target_: src.models.translation.T5Translation.initialize
+  params:
+    name: t5-large
+    task: translation
+    max_input_length: 512
+    logging_frequency: 10
+    logging: true
+  trainer:
+    params:
+      batch_size: 16
+      learning_rate: 3.0e-05
+      max_epochs: 5
+      lr_step_size: 10
+      lr_gamma: 0.1
+  cache_dir: ./tmp
+  metric:
+    _target_: torch.nn.CrossEntropyLoss
+logger:
+  csv:
+    _target_: pytorch_lightning.loggers.CSVLogger
+    save_dir: ${paths.output_dir}
+    name: csv/
+    prefix: ' | '
+    flush_logs_every_n_steps: 1
+callbacks:
+  model_checkpoint:
+    _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    dirpath: ${paths.output_dir}/checkpoints/${task_name}
+    filename: autoencoder-{epoch:02d}
+    monitor: val_loss
+    verbose: false
+    save_last: null
+    save_top_k: 3
+    mode: min
+    auto_insert_metric_name: true
+    save_weights_only: false
+    every_n_train_steps: null
+    train_time_interval: null
+    every_n_epochs: null
+    save_on_train_epoch_end: null
+  early_stopping:
+    _target_: pytorch_lightning.callbacks.EarlyStopping
+    monitor: val_loss
+    min_delta: 0
+    patience: 5
+    verbose: false
+    mode: min
+    strict: true
+    check_finite: true
+    stopping_threshold: null
+    divergence_threshold: null
+    check_on_train_epoch_end: null
+  model_summary:
+    _target_: pytorch_lightning.callbacks.RichModelSummary
+    max_depth: 2
+  rich_progress_bar:
+    _target_: pytorch_lightning.callbacks.RichProgressBar
+    theme:
+      description: green_yellow
+      progress_bar: green1
+      progress_bar_finished: green1
+      progress_bar_pulse: '#6206E0'
+      batch_progress: green_yellow
+      time: grey82
+      processing_speed: grey82
+      metrics: grey82
+      metrics_format: .3e
+      metrics_text_delimiter: ' | '
+trainer:
+  _target_: pytorch_lightning.trainer.Trainer
+  default_root_dir: ${paths.output_dir}
+  min_epochs: 5
+  max_epochs: ${params.num_epochs}
+  accelerator: gpu
+  devices: 1
+  check_val_every_n_epoch: 1
+  deterministic: false
+paths:
+  root_dir: ${oc.env:PROJECT_ROOT}
+  log_dir: ${paths.root_dir}/logs/
+  output_dir: ${paths.root_dir}/outputs/${task_name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  cache_dir: ${hydra:runtime.output_dir}/tmp
+  work_dir: ${hydra:runtime.cwd}

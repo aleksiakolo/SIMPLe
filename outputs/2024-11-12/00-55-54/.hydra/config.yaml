@@ -1,0 +1,19 @@
+dataset:
+  name: Helsinki-NLP/europarl
+  lang_pair: en-es
+  source_lang: en
+  target_lang: es
+  test_size: 0.1
+  seed: 42
+preprocessing:
+  lowercase: true
+  remove_non_alphanumeric: true
+  remove_extra_whitespace: true
+tokenization:
+  model_name: t5-small
+  truncation: true
+  padding: max_length
+  max_length: 128
+output:
+  dir: /Users/ZincR/Desktop/europarl_data
+  save_format: json

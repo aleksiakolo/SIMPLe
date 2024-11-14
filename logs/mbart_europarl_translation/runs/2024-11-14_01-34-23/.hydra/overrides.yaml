@@ -1,0 +1,4 @@
+- model=mbart
+- data=europarl
+- name=mbart_europarl_output
+- task_name=mbart_europarl_translation

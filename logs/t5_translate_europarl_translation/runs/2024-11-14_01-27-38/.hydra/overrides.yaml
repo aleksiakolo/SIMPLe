@@ -1,0 +1,4 @@
+- model=t5_translate
+- data=europarl
+- name=t5_translate_europarl_output
+- task_name=t5_translate_europarl_translation
