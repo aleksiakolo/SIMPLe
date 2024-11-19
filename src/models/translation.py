@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoModelForSeq2SeqLM, MBartForConditionalGeneration, AutoTokenizer, MBartTokenizer
+from transformers import AutoModelForSeq2SeqLM, MBartForConditionalGeneration, AutoTokenizer, MBart50Tokenizer
 from src.models.base_model import LitBaseModel
 from loguru import logger
 
@@ -7,7 +7,7 @@ class mBART(LitBaseModel):
     def __init__(self, cfg):
         logger.info("Initializing mBART translation model...")
         super().__init__(cfg)
-        self.tokenizer = MBartTokenizer.from_pretrained(self.cfg.params.name)
+        self.tokenizer = MBart50Tokenizer.from_pretrained(self.cfg.params.name)
         logger.info("mBART translation model initialized successfully.")
 
     def _build_model(self):

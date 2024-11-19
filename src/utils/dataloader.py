@@ -2,7 +2,7 @@ import re
 from loguru import logger
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, MBartTokenizer
+from transformers import AutoTokenizer, MBart50Tokenizer
 from datasets import load_dataset
 
 class CorpusDataset:
@@ -43,7 +43,7 @@ class CorpusDataset:
     def tokenize(self, dataset):
         """Tokenize the dataset using the specified tokenizer."""
         if self.cfg.tokenization.model_name == "facebook/mbart-large-50-many-to-many-mmt":
-            tokenizer = MBartTokenizer.from_pretrained(self.cfg.tokenization.model_name)
+            tokenizer = MBart50Tokenizer.from_pretrained(self.cfg.tokenization.model_name)
         else:
             tokenizer = AutoTokenizer.from_pretrained(self.cfg.tokenization.model_name)
         
@@ -58,14 +58,16 @@ class CorpusDataset:
             input_tokenized = tokenizer(
                 input_text,
                 return_tensors="pt",
-                max_length=None,  
+                max_length=max_length,  
+                truncation=True,
                 padding=False     
             )
             
             label_tokenized = tokenizer(
                 label_text,
                 return_tensors="pt",
-                max_length=None,  
+                max_length=max_length,  
+                truncation=True,
                 padding=False
             )
 
@@ -81,19 +83,18 @@ class CorpusDataset:
     def split_dataset(self, dataset):
         """Split the dataset into train, validation, and test sets."""
         logger.info("Splitting the dataset into training, validation, and test sets")
-
         train_split = dataset["train"]
 
         # Create the test split
         train_test_split = train_split.train_test_split(test_size=self.cfg.dataset.test_size, seed=self.cfg.dataset.seed)
-        test_ds = train_test_split['test']
-        remaining_train = train_test_split['train']
+        test_ds = train_test_split['test'].select(range(int(0.01 * len(train_test_split['test']))))
+        remaining_train = train_test_split['train'].select(range(int(0.01 * len(train_test_split['train']))))
 
         # Create the validation split from the remaining training data
         val_size = self.cfg.dataset.val_size / (1 - self.cfg.dataset.test_size)  # Adjust for the remaining data
         train_val_split = remaining_train.train_test_split(test_size=val_size, seed=self.cfg.dataset.seed)
-        train_ds = train_val_split['train']
-        val_ds = train_val_split['test']
+        train_ds = train_val_split['train'].select(range(int(0.01 * len(train_val_split['train']))))
+        val_ds = train_val_split['test'].select(range(int(0.01 * len(train_val_split['test']))))
 
         logger.info(f"Training set size: {len(train_ds)}")
         logger.info(f"Validation set size: {len(val_ds)}")
@@ -150,7 +151,6 @@ class TedTalksDataset(CorpusDataset):
     def load_dataset(self):
         """Load the dataset from Hugging Face with trust_remote_code enabled."""
         logger.info(f"Loading dataset: {self.cfg.dataset.name}")
-
         if 'language_pair' in self.cfg.dataset and 'year' in self.cfg.dataset:
             return load_dataset(
                 self.cfg.dataset.name,
@@ -162,7 +162,7 @@ class TedTalksDataset(CorpusDataset):
             return load_dataset(
                 self.cfg.dataset.name,
                 language_pair=tuple(self.cfg.dataset.language_pair),
-                trust_remote_code=True  
+                trust_remote_code=True
             )
         else:
             return load_dataset(self.cfg.dataset.name, trust_remote_code=True) 
@@ -205,7 +205,7 @@ class MultiLexSumDataset(CorpusDataset):
         return train_ds, val_ds, test_ds
 
 
-def get_dataloader(cfg, split="train", batch_size=16, shuffle=True, num_workers=4):
+def get_dataloader(cfg, split="train", batch_size=2, shuffle=True, num_workers=2, persistent_workers=True):
     """
     Function to create a DataLoader for the correct dataset class based on the configuration.
     
@@ -244,7 +244,8 @@ def get_dataloader(cfg, split="train", batch_size=16, shuffle=True, num_workers=
         batch_size=batch_size,
         shuffle=shuffle if split == "train" else False,
         collate_fn=dataset.collate_fn,
-        num_workers=num_workers
+        num_workers=num_workers,
+        persistent_workers=persistent_workers
     )
     
     return dataloader

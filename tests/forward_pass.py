@@ -2,7 +2,7 @@ import pytest
 import torch
 from hydra import initialize, compose
 from hydra.utils import instantiate
-from transformers import AutoTokenizer, MBartTokenizer
+from transformers import AutoTokenizer, MBart50Tokenizer
 
 @pytest.fixture(scope="module")
 def hydra_initialize():
@@ -57,7 +57,7 @@ def test_t5_summarization_forward_pass(hydra_initialize):
 def test_mbart_translation_forward_pass(hydra_initialize):
     cfg = get_config("mbart")
     model = instantiate(cfg)
-    tokenizer = MBartTokenizer.from_pretrained(cfg.params.name) 
+    tokenizer = MBart50Tokenizer.from_pretrained(cfg.params.name) 
     test_forward_pass(model, tokenizer)
 
 def test_t5_translation_forward_pass(hydra_initialize):

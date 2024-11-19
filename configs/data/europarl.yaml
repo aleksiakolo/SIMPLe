@@ -16,7 +16,7 @@ tokenization:
   model_name: ${model.params.name}
   truncation: true
   padding: "max_length"
-  max_length: 512
+  max_length: 128
   stride: 128
 
 output:
