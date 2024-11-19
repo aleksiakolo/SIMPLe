@@ -114,12 +114,50 @@ Below is the equivalent visualization of the validation metrics for BART, Legal-
 
 **![Validation Metrics for Multi-LexSum](figures/summary.png)**
 
-## Conclusion
+## Conclusions and Insights
 
-The results show that:
+### Interpretation of Loss and Validation Metrics
 
--   **T5** consistently performs well across all datasets, demonstrating low training and validation loss, as well as strong ROUGE scores.
--   **Legal-BERT** excels in domain-specific applications, particularly with legal texts, where it achieves competitive ROUGE scores and lower perplexity.
--   **BART** provides reliable summarization for general-purpose text but shows varied results depending on the dataset.
+The project results showed distinct performances across different models for summarization and translation tasks, measured using training loss, validation loss, perplexity, and ROUGE scores. Here is a detailed analysis of these metrics across the datasets:
 
-These findings indicate that while T5 is a robust general-purpose summarization model, domain-specific models like Legal-BERT are essential for specialized tasks.
+#### Summarization Tasks
+
+**LexiSum Dataset**:
+
+1. **T5** consistently achieved the lowest training loss and validation metrics, with a ROUGE-1 score in the range of approximately **0.4 to 0.45**, which is above the typical baseline of **0.4 to 0.6** for good performance. ROUGE-2 and ROUGE-L scores also exceeded common baselines.
+2. **BART** had reasonable performance with moderate training loss and validation perplexity, though it struggled to match the ROUGE scores seen with T5.
+3. **Legal-BERT**, despite being trained on legal corpora, exhibited higher training loss and validation perplexity. While it had decent ROUGE scores, particularly in domain-specific texts, they did not match the performance of T5.
+
+#### Translation Tasks (EuroParl & TED Talks)
+
+1. **T5** outperformed **mBART** in terms of training loss and validation metrics. While both models are equipped for multilingual tasks, T5's architecture treats translation as a unified text-to-text task, which may contribute to its smoother handling of input-output pairs.
+2. **mBART** showed variability in training loss and had higher perplexity compared to T5. While it is optimized for multilingual translation, its performance lagged behind T5, possibly due to more complex parameter tuning requirements or architecture design.
+
+### Hypotheses for Model Performance
+
+#### 1. **Why T5 Might Be Outperforming Legal-BERT and BART**:
+
+-   **Unified Text-to-Text Approach**: T5's consistent approach of treating all NLP tasks as a text-to-text problem may enhance its generalization capabilities, making it versatile across both summarization and translation tasks.
+-   **Seq2Seq Optimization**: While BART is a robust seq2seq model, Legal-BERT is not inherently seq2seq, requiring adaptations that may affect performance. Legal-BERT's decoder configuration with the use of GPT-2, may need further finetuning to improve output quality.
+-   **Task Flexibility**: T5's pretraining includes diverse tasks, potentially enabling it to adapt better to various summarization and translation needs compared to models pre-trained primarily on denoising or domain-specific text.
+
+#### 2. **Why T5 Might Be Better Than mBART for Translation**:
+
+-   **Consistent Training Objectives**: T5's architecture is designed for seamless text-to-text operations, allowing it to handle translation with fewer domain-specific adjustments.
+-   **Training Data and Pretraining**: T5's pretraining spans a broader range of language pairs and tasks, possibly giving it an advantage over mBART's specialized multilingual setup.
+-   **Efficiency in Attention Mechanisms**: T5's model structure might offer more efficient cross-lingual representation compared to mBART's extensive multilingual capacity, which could lead to more computational overhead.
+
+### Future Work
+
+Given the computational constraints:
+
+-   **Primary Focus**: Continuing with **T5** for both summarization and translation tasks seemed promising. Its consistent performance across datasets and lower training and validation loss make it a reliable choice for achieving high-quality outputs with less need for fine-tuning.
+-   **Resource Management**: Given limited computational power, fine-tuning and extending T5's capabilities with domain-specific adjustments will be prioritized to maximize results with minimal overhead.
+
+### Baseline Comparison for ROUGE Scores and Perplexity
+
+-   **ROUGE-1**: T5 consistently achieved scores above **0.4**, which is considered good. Legal-BERT and BART were generally below this threshold, indicating room for improvement.
+-   **ROUGE-2**: T5 scored in the **0.2 to 0.3** range, aligning with the typical baseline for strong performance.
+-   **ROUGE-L**: T5's scores were around **0.3 to 0.4**, meeting expectations for good abstractive summarization.
+
+Perplexity was lowest for T5, reinforcing its effectiveness. For computationally constrained settings, we believe that investing resources into optimizing T5 will yield the best return on performance across our tasks.
