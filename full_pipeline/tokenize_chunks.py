@@ -5,6 +5,7 @@ import torch
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 from loguru import logger
+from concurrent.futures import ProcessPoolExecutor
 from omegaconf import DictConfig, OmegaConf
 import hydra
 
@@ -27,38 +28,23 @@ class LegalBERTEmbedder:
         Returns:
             torch.Tensor: Embedded chunks of shape (num_chunks, embedding_dim).
         """
-        if not tokenized_chunks:
-            logger.error("No valid tokenized chunks provided to embed_chunks.")
-            return torch.empty(0)  # Return empty tensor if no chunks
         embeddings = []
         with torch.no_grad():
             for chunk in tokenized_chunks:
-                input_ids = torch.tensor(chunk.get("input_ids", [])).unsqueeze(0).to(self.device)
-                attention_mask = torch.tensor(chunk.get("attention_mask", [])).unsqueeze(0).to(self.device)
-                if input_ids.numel() == 0 or attention_mask.numel() == 0:
-                    logger.warning(f"Empty input_ids or attention_mask for chunk: {chunk}")
-                    continue  # Skip invalid chunks
-                
+                input_ids = torch.tensor(chunk["input_ids"]).unsqueeze(0).to(self.device)
+                attention_mask = torch.tensor(chunk["attention_mask"]).unsqueeze(0).to(self.device)
                 output = self.model(input_ids=input_ids, attention_mask=attention_mask)
                 chunk_embedding = output.last_hidden_state.mean(dim=1)  # Mean pooling
                 embeddings.append(chunk_embedding.squeeze(0).cpu())
-
-        if not embeddings:
-            logger.warning("No embeddings generated from the provided chunks.")
-            return torch.empty(0)  # Return empty tensor if no embeddings
-
         return torch.stack(embeddings)
 
 
-def process_single_file(file_name, embedder, config):
+def process_example(example_idx, embedder, tokenized_dir, output_dir, split):
     """
-    Process a single example.
+    Process a single example to generate embeddings and save them along with labels.
     """
-    tokenized_dir = config.paths.tokenized_dir
-    output_dir = config.paths.output_dir
-    split = config.split
-
-    tokenized_path = os.path.join(tokenized_dir, split, file_name)
+    # Load tokenized JSON file
+    tokenized_path = os.path.join(tokenized_dir, split, f"{example_idx}.json")
     if not os.path.exists(tokenized_path):
         logger.error(f"Tokenized file {tokenized_path} does not exist.")
         return
@@ -67,7 +53,7 @@ def process_single_file(file_name, embedder, config):
         tokenized_data = json.load(f)
 
     # Create HDF5 file for embeddings
-    h5_path = os.path.join(output_dir, "data", split, file_name.replace(".json", ".h5"))
+    h5_path = os.path.join(output_dir, "data", split, f"{example_idx}.h5")
     os.makedirs(os.path.dirname(h5_path), exist_ok=True)
 
     with h5py.File(h5_path, "w") as h5_file:
@@ -79,29 +65,20 @@ def process_single_file(file_name, embedder, config):
                     if f"chunk_{j}" in source_data
                 ]
                 embeddings = embedder.embed_chunks(chunks)
-                if embeddings.nelement() > 0:  # Only save non-empty embeddings
-                    h5_file.create_dataset(source_key, data=embeddings.numpy())
-                    logger.info(f"Saved embeddings for {source_key} in {file_name}")
-                else:
-                    logger.warning(f"No embeddings generated for {source_key} in {file_name}")
+                h5_file.create_dataset(source_key, data=embeddings.numpy())
 
-    # Save labels (only the long summary) as JSON
+    # Save labels (target summaries and tokens) as JSON
     labels = {}
-    if "long" in tokenized_data:
-        labels["long"] = {
-            "text": tokenized_data["long"]["text"],
-            "chunks": {
-                key: tokenized_data["long"][key]
-                for key in tokenized_data["long"].keys()
-                if key.startswith("chunk_")
-            },
-        }
+    for summary_type in ["long", "small", "tiny"]:
+        if summary_type in tokenized_data:
+            labels[summary_type] = tokenized_data[summary_type]
+            labels[f"{summary_type}_input_ids"] = tokenized_data.get(f"{summary_type}_input_ids", [])
+            labels[f"{summary_type}_attention_mask"] = tokenized_data.get(f"{summary_type}_attention_mask", [])
 
-    labels_path = os.path.join(output_dir, "labels", split, file_name)
+    labels_path = os.path.join(output_dir, "labels", split, f"{example_idx}.json")
     os.makedirs(os.path.dirname(labels_path), exist_ok=True)
     with open(labels_path, "w") as f:
         json.dump(labels, f, indent=4)
-    logger.info(f"Saved labels for file: {file_name}")
 
 
 @hydra.main(version_base=None, config_path="./configs", config_name="embed_lex_sum")
@@ -112,28 +89,31 @@ def embed_and_save(config: DictConfig):
     logger.info("Starting embedding process...")
     logger.info(OmegaConf.to_yaml(config))
 
+    embedder = LegalBERTEmbedder(model_name=config.model.name, device=config.model.device)
     tokenized_dir = config.paths.tokenized_dir
     output_dir = config.paths.output_dir
     split = config.split
+    sample_size = config.sample_size
 
     tokenized_split_dir = os.path.join(tokenized_dir, split)
 
     # Get list of tokenized files
     file_list = [f for f in os.listdir(tokenized_split_dir) if f.endswith(".json")]
-    if config.sample_size:
-        file_list = file_list[:config.sample_size]
+    if sample_size:
+        file_list = file_list[:sample_size]
 
     logger.info(f"Processing {len(file_list)} examples in the {split} split...")
 
-    embedder = LegalBERTEmbedder(
-        model_name=config.model.name,
-        device=config.model.device,
-    )
-
-    # Process files one by one
-    for file_name in tqdm(file_list, desc=f"Processing {split} split"):
-        process_single_file(file_name, embedder, config)
-        torch.cuda.empty_cache()  # Clear GPU memory after each file
+    with ProcessPoolExecutor() as executor:
+        futures = {
+            executor.submit(process_example, os.path.splitext(filename)[0], embedder, tokenized_dir, output_dir, split): filename
+            for filename in file_list
+        }
+        for future in tqdm(futures, desc=f"Processing {split} split", total=len(futures)):
+            try:
+                future.result()  # Wait for all futures to complete
+            except Exception as e:
+                logger.error(f"Error processing example {futures[future]}: {e}")
 
     logger.info("Embedding process completed.")
 

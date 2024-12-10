@@ -1,0 +1,10 @@
+paths:
+  tokenized_dir: "/home/aleksia/tokenized_dataset"
+  output_dir: "/home/aleksia/lex_sum_data"
+
+model:
+  name: nlpaueb/legal-bert-base-uncased
+  device: cuda
+
+split: validation
+sample_size: Null

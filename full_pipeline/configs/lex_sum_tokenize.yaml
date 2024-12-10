@@ -13,7 +13,7 @@ tokenization:
   max_length: 512
 
 output:
-  dir: "./tokenized_dataset"
+  dir: "/home/aleksia/tokenized_dataset"
 
 hydra:
   run:
