@@ -1,0 +1,49 @@
+{
+  "os": "Linux-6.8.0-38-generic-x86_64-with-glibc2.39",
+  "python": "CPython 3.12.7",
+  "startedAt": "2024-12-10T14:13:01.239716Z",
+  "program": "/home/aleksia/SIMPLe/full_pipeline/train_summarization.py",
+  "codePath": "full_pipeline/train_summarization.py",
+  "git": {
+    "remote": "git@github.com:aleksiakolo/SIMPLe.git",
+    "commit": "612f1323ae8d51fe16e091fcb16b0e195ecd5c01"
+  },
+  "email": "aleksiakolo@gmail.com",
+  "root": ".",
+  "host": "quadro",
+  "username": "aleksia",
+  "executable": "/home/aleksia/miniconda3/envs/simple/bin/python",
+  "codePathLocal": "full_pipeline/train_summarization.py",
+  "cpu_count": 36,
+  "cpu_count_logical": 72,
+  "gpu": "Quadro RTX 8000",
+  "gpu_count": 2,
+  "disk": {
+    "/": {
+      "total": "3933655523328",
+      "used": "1353625100288"
+    }
+  },
+  "memory": {
+    "total": "270350954496"
+  },
+  "cpu": {
+    "count": 36,
+    "countLogical": 72
+  },
+  "gpu_nvidia": [
+    {
+      "name": "Quadro RTX 8000",
+      "memoryTotal": "51539607552",
+      "cudaCores": 4608,
+      "architecture": "Turing"
+    },
+    {
+      "name": "Quadro RTX 8000",
+      "memoryTotal": "51539607552",
+      "cudaCores": 4608,
+      "architecture": "Turing"
+    }
+  ],
+  "cudaVersion": "12.2"
+}

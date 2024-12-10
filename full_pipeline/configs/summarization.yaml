@@ -1,30 +1,31 @@
-defaults:
-  - _self_
-  - hydra/output_subdir: null
-
 model:
+  tokenizer: "facebook/bart-large"
+  decoder: "facebook/bart-large"
   embedding_dim: 768
   num_heads: 8
   ff_dim: 2048
-  num_layers: 3
+  num_layers: 4
   dropout: 0.1
   max_output_length: 512
+
+training:
+  batch_size: 8
   learning_rate: 3e-5
-
-trainer:
   max_epochs: 10
-  batch_size: 1
-  accelerator: gpu
-  devices: 1
+  gpus: 1
 
-paths:
-  data_dir: "/home/aleksia/lex_sum_data/data"
-  labels_dir: "/home/aleksia/lex_sum_data/labels"
-  train_split: "test"
-  val_split: "validation"
+data:
+  train:
+    data_dir: "/home/aleksia/lex_sum_data/data/test"
+    labels_dir: "/home/aleksia/lex_sum_data/labels/test"
+  val:
+    data_dir: "/home/aleksia/lex_sum_data/data/validation"
+    labels_dir: "/home/aleksia/lex_sum_data/labels/validation"
 
-logging:
-  project_name: "LegalBERT-Summarization"
-  checkpoint_dir: "./checkpoints"
-  save_top_k: 3
-  patience: 5
+callbacks:
+  checkpoint:
+    dirpath: "./checkpoints"
+  early_stopping:
+    patience: 5
+
+project_name: "LegalBERT-Summarization"

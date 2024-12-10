@@ -5,7 +5,10 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import pytorch_lightning as pl
-from transformers import AutoTokenizer, BartForConditionalGeneration
+from transformers import BartConfig, BartForConditionalGeneration
+from transformers.modeling_outputs import BaseModelOutput
+
+import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -59,40 +62,58 @@ class LegalBERTEncoder(nn.Module):
 class LegalBERTSeq2Seq(nn.Module):
     def __init__(self, encoder, decoder_model_name="facebook/bart-large"):
         """
-        LegalBERT Seq2Seq model for summarization.
+        LegalBERT Seq2Seq model with a custom encoder and BART's decoder.
         Args:
-            encoder (LegalBERTEncoder): The encoder for cross-source attention.
-            decoder (Bert2BertDecoder): The decoder for generating sequences.
+            encoder (LegalBERTEncoder): The custom encoder for cross-source attention.
+            decoder_model_name (str): Pretrained BART model name for the decoder.
         """
         super().__init__()
         self.encoder = encoder
-        self.decoder = BartForConditionalGeneration.from_pretrained(decoder_model_name)
+        
+        # Load BART configuration and initialize model
+        self.bart_config = BartConfig.from_pretrained(decoder_model_name)
+        self.bart = BartForConditionalGeneration.from_pretrained(decoder_model_name)
+        
+        # Use only the BART decoder
+        self.decoder = self.bart.model.decoder
+
+        # Projection layer to map encoder outputs to the decoder's expected hidden size
+        self.projection = nn.Linear(encoder.embedding_dim, self.bart_config.d_model)
+
+        # Language modeling head for final token predictions
+        self.lm_head = nn.Linear(self.bart_config.d_model, self.bart_config.vocab_size, bias=False)
 
     def forward(self, sources, source_attention_mask, input_ids, attention_mask):
         """
-        Forward pass for the LegalBERT Seq2Seq model.
+        Forward pass with a custom encoder and BART decoder.
         Args:
             sources (torch.Tensor): Batched source embeddings, shape (batch_size, max_sources, max_chunks, embedding_dim).
             source_attention_mask (torch.Tensor): Attention mask for the encoder, shape (batch_size, max_sources, max_chunks).
             input_ids (torch.Tensor): Input IDs for the decoder.
             attention_mask (torch.Tensor): Attention mask for the decoder.
         Returns:
-            torch.Tensor: Decoder outputs (logits for next-token prediction).
+            torch.Tensor: Logits for next-token prediction.
         """
-        # Pass through the encoder to get hidden states
+        # Pass through the custom encoder
         encoder_hidden_states = self.encoder(sources, source_attention_mask)
+        
+        # Project encoder hidden states to match the decoder's expected input size
+        encoder_hidden_states = self.projection(encoder_hidden_states)
 
-        # Decode using BART's decoder, feeding the encoder's outputs
-        outputs = self.decoder(
+        # Pass through the decoder
+        decoder_outputs = self.decoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
             encoder_hidden_states=encoder_hidden_states,
-            encoder_attention_mask=source_attention_mask.view(sources.size(0), -1)  # Flattened for compatibility
+            encoder_attention_mask=source_attention_mask.view(sources.size(0), -1),  # Flattened for compatibility
+            use_cache=False,  # Set to False for training
         )
 
-        return outputs
+        # Compute logits using the language modeling head
+        logits = self.lm_head(decoder_outputs.last_hidden_state)
+        return logits
 
-    def generate(self, sources, source_attention_mask, max_length=128, num_beams=4):
+    def generate(self, sources, source_attention_mask, max_length=512, num_beams=2):
         """
         Generate summaries using the model.
         Args:
@@ -103,17 +124,28 @@ class LegalBERTSeq2Seq(nn.Module):
         Returns:
             list: Generated summaries as token IDs.
         """
+        # Pass through the custom encoder
         encoder_hidden_states = self.encoder(sources, source_attention_mask)
 
-        # Generate summaries
-        generated_ids = self.decoder.generate(
-            encoder_hidden_states=encoder_hidden_states,
-            encoder_attention_mask=source_attention_mask.view(sources.size(0), -1),
+        # Project encoder hidden states to match the decoder's expected input size
+        encoder_hidden_states = self.projection(encoder_hidden_states)
+
+        # Prepare encoder outputs for BART's internal generate function
+        encoder_outputs = BaseModelOutput(
+            last_hidden_state=encoder_hidden_states
+        )
+
+        # Generate summaries using BART's generate method
+        generated_ids = self.bart.generate(
+            input_ids=None,  # No initial decoder input for generation
+            encoder_outputs=encoder_outputs,  # Packaged encoder hidden states
+            attention_mask=source_attention_mask.view(sources.size(0), -1),  # Flattened attention mask
             max_length=max_length,
-            num_beams=num_beams
+            num_beams=num_beams,
         )
 
         return generated_ids
+
 
 
 class SummarizationDataset(Dataset):
@@ -178,8 +210,6 @@ class SummarizationDataset(Dataset):
             "attention_mask": torch.tensor(label_attention_mask, dtype=torch.long),
         }
 
-
-import torch
 
 def collate_fn(batch):
     """

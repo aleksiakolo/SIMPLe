@@ -1,9 +1,9 @@
 import torch
 import pytorch_lightning as pl
 from torch.nn import functional as F
-from transformers import AutoTokenizer, BartForConditionalGeneration
+from transformers import BartTokenizer
 from torchmetrics.text.rouge import ROUGEScore
-from full_pipeline.models.summary import LegalBERTEncoder, get_dataloader
+from full_pipeline.models.summary import LegalBERTEncoder, LegalBERTSeq2Seq, get_dataloader
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import hydra
@@ -11,13 +11,12 @@ from omegaconf import DictConfig
 import wandb
 
 class LegalBERTSeq2SeqPL(pl.LightningModule):
-    def __init__(self, encoder, decoder, tokenizer, learning_rate=3e-5, max_output_length=512):
+    def __init__(self, encoder, tokenizer, learning_rate=3e-5, max_output_length=512):
         """
         Lightning Module for LegalBERT Seq2Seq with Cross-Attention Encoder and Decoder.
         """
         super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
+        self.model = LegalBERTSeq2Seq(encoder)
         self.tokenizer = tokenizer
         self.learning_rate = learning_rate
         self.max_output_length = max_output_length
@@ -32,26 +31,41 @@ class LegalBERTSeq2SeqPL(pl.LightningModule):
 
     def forward(self, batch):
         """
-        Forward pass.
+        Forward pass through the model.
+        Args:
+            batch (dict): Dictionary containing sources, source_attention_mask, input_ids, and attention_mask.
+        Returns:
+            torch.Tensor: Logits for next-token prediction.
         """
-        encoder_hidden_states = self.encoder(batch["sources"], batch["source_attention_mask"])
-        return self.decoder(
+        return self.model(
+            sources=batch["sources"],
+            source_attention_mask=batch["source_attention_mask"],
             input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            encoder_hidden_states=encoder_hidden_states,
+            attention_mask=batch["attention_mask"]
         )
+
 
     def training_step(self, batch, batch_idx):
         """
         Training step: Compute loss and log metrics.
+        Args:
+            batch (dict): Input batch for training.
+            batch_idx (int): Index of the batch.
+        Returns:
+            torch.Tensor: Loss for the current training step.
         """
-        outputs = self(batch)
-        logits = outputs.logits
+        # Forward pass
+        logits = self(batch)
+        
+        # Compute loss
         labels = batch["input_ids"]
         loss = self.criterion(logits.view(-1, logits.size(-1)), labels.view(-1))
         self.training_losses.append(loss.item())
+        
+        # Log metrics
         self.log("train_loss", loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         return loss
+
 
     def on_train_epoch_end(self):
         """
@@ -64,30 +78,48 @@ class LegalBERTSeq2SeqPL(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         """
         Validation step: Compute loss, perplexity, and ROUGE scores.
+        Args:
+            batch (dict): Input batch for validation.
+            batch_idx (int): Index of the batch.
+        Returns:
+            dict: Validation metrics for the current step.
         """
-        outputs = self(batch)
-        logits = outputs.logits
+        # Forward pass
+        logits = self(batch)
+
+        # Compute loss
         labels = batch["input_ids"]
         val_loss = self.criterion(logits.view(-1, logits.size(-1)), labels.view(-1))
 
+        # Compute perplexity
         perplexity = torch.exp(val_loss)
 
-        generated_ids = self.decoder.generate(
-            encoder_hidden_states=self.encoder(batch["sources"], batch["source_attention_mask"]),
+        # Generate predictions
+        generated_ids = self.model.generate(
+            sources=batch["sources"],
+            source_attention_mask=batch["source_attention_mask"],
             max_length=self.max_output_length,
             num_beams=4,
         )
         preds = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
         labels_decoded = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
 
+        # Compute ROUGE scores
         rouge_scores = self.rouge(preds, labels_decoded)
 
+        # Log metrics
         self.log("val_loss", val_loss, prog_bar=True, logger=True)
         self.log("val_perplexity", perplexity, prog_bar=True, logger=True)
         self.log_dict({f"val_{k}": v for k, v in rouge_scores.items()}, prog_bar=True, logger=True)
 
-        self.validation_outputs.append({"val_loss": val_loss.item(), "val_perplexity": perplexity.item(), **rouge_scores})
+        # Store validation outputs for epoch-end processing
+        self.validation_outputs.append({
+            "val_loss": val_loss.item(),
+            "val_perplexity": perplexity.item(),
+            **rouge_scores,
+        })
         return {"val_loss": val_loss, "val_perplexity": perplexity, **rouge_scores}
+
 
     def configure_optimizers(self):
         """
@@ -100,10 +132,10 @@ class LegalBERTSeq2SeqPL(pl.LightningModule):
         }
         return [optimizer], [scheduler]
 
-@hydra.main(config_path="conf", config_name="config")
+@hydra.main(version_base=None, config_path="./configs", config_name="summarization")
 def main(cfg: DictConfig):
     # Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model.tokenizer)
+    tokenizer = BartTokenizer.from_pretrained("facebook/bart-large")
 
     # Encoder and Decoder
     encoder = LegalBERTEncoder(
@@ -113,12 +145,10 @@ def main(cfg: DictConfig):
         num_layers=cfg.model.num_layers,
         dropout=cfg.model.dropout,
     )
-    decoder = BartForConditionalGeneration.from_pretrained(cfg.model.decoder)
-
+    
     # Model
     model = LegalBERTSeq2SeqPL(
         encoder=encoder,
-        decoder=decoder,
         tokenizer=tokenizer,
         learning_rate=cfg.training.learning_rate,
         max_output_length=cfg.model.max_output_length,
