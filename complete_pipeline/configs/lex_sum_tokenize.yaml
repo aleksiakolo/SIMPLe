@@ -1,0 +1,22 @@
+dataset:
+  name: "allenai/multi_lexsum"
+  config_version: "v20220616"
+  source_field: "sources"
+
+preprocessing:
+  lowercase: false
+  remove_non_alphanumeric: false
+  remove_extra_whitespace: false
+
+tokenization:
+  model_name: "nlpaueb/legal-bert-base-uncased"
+  max_length: 512
+
+output:
+  dir: "./tokenized_dataset"
+
+hydra:
+  run:
+    dir: ./outputs/${now:%Y-%m-%d_%H-%M-%S}
+
+sample_size: Null  # Set to Null for full dataset
