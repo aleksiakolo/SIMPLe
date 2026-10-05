@@ -3,6 +3,7 @@ _target_: src.models.summarization.T5Summarization.initialize
 params:
   name: "t5-large"
   task: "summarization"
+  input_prefix: "summarize: "
   max_input_length: 512
   logging_frequency: 10
   logging: true

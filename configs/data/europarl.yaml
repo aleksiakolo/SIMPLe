@@ -15,6 +15,7 @@ preprocessing:
 
 tokenization:
   model_name: ${model.params.name}
+  input_prefix: ${oc.select:model.params.input_prefix,""}  # task prefix, only set for T5
   truncation: true
   padding: "max_length"
   max_length: 128

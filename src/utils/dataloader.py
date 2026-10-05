@@ -53,8 +53,11 @@ class CorpusDataset:
         max_length = self.cfg.tokenization.max_length
         logger.info("Tokenizing the dataset ...")
 
+        # T5 needs a task prefix such as "summarize: " or "translate English to Spanish: "
+        input_prefix = self.cfg.tokenization.get("input_prefix") or ""
+
         def tokenize_function(examples):
-            input_text = examples["input_text"]
+            input_text = input_prefix + examples["input_text"]
             label_text = examples["label_text"]
 
             # Tokenize input and label as single sequences
