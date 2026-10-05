@@ -47,6 +47,7 @@ regex==2024.11.6
 requests==2.32.3
 rich==13.9.4
 rouge_score==0.1.2
+sacrebleu==2.6.0
 safetensors==0.4.5
 sentencepiece==0.2.0
 setuptools==75.1.0

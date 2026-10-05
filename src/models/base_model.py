@@ -5,10 +5,9 @@ from typing import TypeVar
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from loguru import logger
 from omegaconf import DictConfig
-from torchmetrics.text.rouge import ROUGEScore
-from torchmetrics.text.bleu import BLEUScore
+from torchmetrics import MeanMetric
+from torchmetrics.text import ROUGEScore, SacreBLEUScore
 from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 from transformers import AutoTokenizer
@@ -33,12 +32,9 @@ class LitBaseModel(Module, pl.LightningModule):
         self.model = self._build_model()
         self.tokenizer = self._build_tokenizer()
 
-        # Initialize metrics based on task
-        if self.cfg.params.task == "summarization":
-            # rougeLsum (on by default) needs nltk punkt data; only these three are logged
-            self.rouge = ROUGEScore(rouge_keys=("rouge1", "rouge2", "rougeL"))
-        elif self.cfg.params.task == "translation":
-            self.bleu = BLEUScore()
+        # Corpus-level metrics: updated every batch, computed once per epoch (separate state for val and test)
+        self.eval_metrics = nn.ModuleDict({stage: self._build_metric() for stage in ("val", "test")})
+        self.eval_losses = nn.ModuleDict({stage: MeanMetric() for stage in ("val", "test")})
 
         self.cache_dir = Path(cfg.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -57,120 +53,69 @@ class LitBaseModel(Module, pl.LightningModule):
         input_ids, attention_mask, labels = batch["input_ids"], batch["attention_mask"], batch["labels"]
         outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
         loss = outputs.loss
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=input_ids.size(0))
         return loss
 
-    def calculate_perplexity(self, loss: torch.Tensor) -> torch.Tensor:
-        """Calculates perplexity from the mean per-token cross-entropy loss."""
-        return torch.exp(loss)
-    
-    def log_val_outputs(self, outputs, stage="Validation"):
-        """Logs validation step outputs."""
-        logger.info(f"{stage} Outputs:")
-        for key, value in outputs.items():
-            if isinstance(value, torch.Tensor):
-                value = value.item()
-            logger.info(f"{stage} {key}: {value}")
-        self.log_dict(outputs, on_epoch=True, prog_bar=True)
+    def _build_metric(self):
+        if self.cfg.params.task == "summarization":
+            # rougeLsum (on by default) needs nltk punkt data; only these three are logged
+            return ROUGEScore(rouge_keys=("rouge1", "rouge2", "rougeL"))
+        if self.cfg.params.task == "translation":
+            return SacreBLEUScore()
+        return MeanMetric()  # placeholder so every task has the same structure
 
-    def log_test_outputs(self, outputs, stage="Test"):
-        """Logs test step outputs."""
-        logger.info(f"{stage} Outputs:")
-        for key, value in outputs.items():
-            if isinstance(value, torch.Tensor):
-                value = value.item()
-            logger.info(f"{stage} {key}: {value}")
-        self.log_dict(outputs, on_epoch=True, prog_bar=True)
+    def _shared_eval_step(self, batch, stage):
+        """Loss, generation and metric updates shared by validation and test."""
+        input_ids, attention_mask, labels = batch["input_ids"], batch["attention_mask"], batch["labels"]
+        batch_size = input_ids.size(0)
+        loss = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels).loss
+        self.log(f"{stage}_loss", loss, on_epoch=True, prog_bar=True, batch_size=batch_size)
+        self.eval_losses[stage].update(loss, batch_size)
+
+        if self.cfg.params.task not in ("summarization", "translation"):
+            return loss
+
+        generated = self.model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=self.cfg.params.max_target_length,
+            num_beams=self.cfg.params.num_beams
+        )
+        preds = self.tokenizer.batch_decode(generated, skip_special_tokens=True)
+        label_ids = labels.masked_fill(labels == -100, self.tokenizer.pad_token_id)
+        refs = self.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
+
+        if self.cfg.params.task == "translation":
+            self.eval_metrics[stage].update(preds, [[ref] for ref in refs])
+        else:
+            self.eval_metrics[stage].update(preds, refs)
+        return loss
+
+    def _log_epoch_metrics(self, stage):
+        # exp of the mean loss over the whole epoch, not the mean of per-batch perplexities
+        self.log(f"{stage}_perplexity", torch.exp(self.eval_losses[stage].compute()), prog_bar=True)
+        self.eval_losses[stage].reset()
+
+        metric = self.eval_metrics[stage]
+        if self.cfg.params.task == "summarization":
+            scores = metric.compute()
+            for key in ("rouge1", "rouge2", "rougeL"):
+                self.log(f"{stage}_{key}_fmeasure", scores[f"{key}_fmeasure"], prog_bar=True)
+        elif self.cfg.params.task == "translation":
+            self.log(f"{stage}_bleu", metric.compute(), prog_bar=True)
+        metric.reset()
 
     def validation_step(self, batch, batch_idx):
-        """Defines the validation step with task-specific metrics."""
-        input_ids, attention_mask, labels = batch["input_ids"], batch["attention_mask"], batch["labels"]
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        val_loss = outputs.loss
+        return self._shared_eval_step(batch, "val")
 
-        # HF loss is already the mean per-token cross-entropy, so perplexity is just exp(loss)
-        perplexity = torch.exp(val_loss)
-        self.log('val_perplexity', perplexity, on_epoch=True, prog_bar=True)
-
-        # Generate outputs for metric calculations
-        generated_outputs = self.model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_length=self.cfg.params.max_input_length
-        )
-
-        # Decode outputs and labels for comparison
-        decoded_preds = self.tokenizer.batch_decode(generated_outputs, skip_special_tokens=True)
-        label_ids = labels.masked_fill(labels == -100, self.tokenizer.pad_token_id)
-        decoded_labels = self.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
-
-        # Log metrics based on the task
-        if self.cfg.params.task == "summarization":
-            rouge_scores = self.rouge(decoded_preds, decoded_labels)
-            outputs_dict = {
-                'val_loss': val_loss,
-                'val_perplexity': perplexity,
-                'val_rouge1_fmeasure': rouge_scores['rouge1_fmeasure'],
-                'val_rouge2_fmeasure': rouge_scores['rouge2_fmeasure'],
-                'val_rougeL_fmeasure': rouge_scores['rougeL_fmeasure']
-            }
-        elif self.cfg.params.task == "translation":
-            avg_bleu_score = self.bleu(decoded_preds, decoded_labels)
-            outputs_dict = {
-                'val_loss': val_loss,
-                'val_perplexity': perplexity,
-                'val_bleu': avg_bleu_score
-            }
-        else:
-            outputs_dict = {'val_loss': val_loss}
-
-        self.log_val_outputs(outputs_dict)
-        return outputs_dict
+    def on_validation_epoch_end(self):
+        self._log_epoch_metrics("val")
 
     def test_step(self, batch, batch_idx):
-        """Defines the test step with task-specific metrics."""
-        input_ids, attention_mask, labels = batch["input_ids"], batch["attention_mask"], batch["labels"]
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        test_loss = outputs.loss
+        return self._shared_eval_step(batch, "test")
 
-        # HF loss is already the mean per-token cross-entropy, so perplexity is just exp(loss)
-        perplexity = torch.exp(test_loss)
-        self.log('test_perplexity', perplexity, on_epoch=True, prog_bar=True)
-
-        # Generate outputs for metric calculations
-        generated_outputs = self.model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_length=self.cfg.params.max_input_length
-        )
-
-        # Decode outputs and labels for comparison
-        decoded_preds = self.tokenizer.batch_decode(generated_outputs, skip_special_tokens=True)
-        label_ids = labels.masked_fill(labels == -100, self.tokenizer.pad_token_id)
-        decoded_labels = self.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
-
-        # Log metrics based on the task
-        if self.cfg.params.task == "summarization":
-            rouge_scores = self.rouge(decoded_preds, decoded_labels)
-            outputs_dict = {
-                'test_loss': test_loss,
-                'test_perplexity': perplexity,
-                'test_rouge1_fmeasure': rouge_scores['rouge1_fmeasure'],
-                'test_rouge2_fmeasure': rouge_scores['rouge2_fmeasure'],
-                'test_rougeL_fmeasure': rouge_scores['rougeL_fmeasure']
-            }
-        elif self.cfg.params.task == "translation":
-            avg_bleu_score = self.bleu(decoded_preds, decoded_labels)
-            outputs_dict = {
-                'test_loss': test_loss,
-                'test_perplexity': perplexity,
-                'test_bleu': avg_bleu_score
-            }
-        else:
-            outputs_dict = {'test_loss': test_loss}
-
-        self.log_test_outputs(outputs_dict)
-        return outputs_dict
+    def on_test_epoch_end(self):
+        self._log_epoch_metrics("test")
 
     def configure_optimizers(self):
         """Configures the optimizer and learning rate scheduler."""

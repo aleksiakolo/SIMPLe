@@ -4,6 +4,8 @@ params:
   name: "nlpaueb/legal-bert-base-uncased"
   task: "summarization"
   max_input_length: 512
+  max_target_length: 256  # max new tokens generated during val/test
+  num_beams: 4
   logging_frequency: 10
   logging: true
 

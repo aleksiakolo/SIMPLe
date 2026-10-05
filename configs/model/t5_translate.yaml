@@ -5,6 +5,8 @@ params:
   task: "translation"
   input_prefix: "translate English to Spanish: "
   max_input_length: 512
+  max_target_length: 128  # max new tokens generated during val/test
+  num_beams: 4
   logging_frequency: 10
   logging: true
 

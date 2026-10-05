@@ -50,6 +50,7 @@ dependencies:
       - pyyaml==6.0.2
       - regex==2024.11.6
       - requests==2.32.3
+      - sacrebleu==2.6.0
       - safetensors==0.4.5
       - sympy==1.13.1
       - tokenizers==0.20.3
