@@ -18,13 +18,13 @@ BART is a transformer model that combines an encoder-decoder architecture and fu
 
 #### 2. **Legal-BERT**
 
-Legal-BERT is a specialized model based on the BERT architecture, fine-tuned on legal corpora to handle domain-specific content. For this project, Legal-BERT is used in a seq2seq format, integrating Legal-BERT as an encoder with a compatible decoder for summarization. The pretrained weights for Legal-BERT are sourced from **"nlpaueb/legal-bert-base-uncased"** on [Hugging Face](https://huggingface.co/nlpaueb/legal-bert-base-uncased).
+Legal-BERT is a specialized model based on the BERT architecture, fine-tuned on legal corpora to handle domain-specific content. For this project, Legal-BERT is used in a seq2seq format by warm-starting both the encoder and the decoder from Legal-BERT. The pretrained weights for Legal-BERT are sourced from **"nlpaueb/legal-bert-base-uncased"** on [Hugging Face](https://huggingface.co/nlpaueb/legal-bert-base-uncased).
 
-**Architecture**: Legal-BERT's encoder-decoder setup uses a BERT encoder paired with a GPT-2 decoder configured with cross-attention. This combination is well-suited for handling the complex structure of legal documents.
+**Architecture**: Legal-BERT is used as a BERT2BERT encoder-decoder (`EncoderDecoderModel.from_encoder_decoder_pretrained`): both sides start from the Legal-BERT weights and share its tokenizer, and only the decoder's cross-attention layers are trained from scratch.
 
 #### 3. **T5 (Text-to-Text Transfer Transformer)**
 
-T5 treats all NLP tasks as a text-to-text problem, utilizing a consistent encoder-decoder framework for both input and output sequences. This model is highly versatile and adapts well to tasks such as summarization. The pretrained weights for T5 are sourced from **"t5-large"** on [Hugging Face](https://huggingface.co/t5-large).
+T5 treats all NLP tasks as a text-to-text problem, utilizing a consistent encoder-decoder framework for both input and output sequences. This model is highly versatile and adapts well to tasks such as summarization. Inputs are prefixed with `summarize: `, as in T5's pretraining. The pretrained weights for T5 are sourced from **"t5-large"** on [Hugging Face](https://huggingface.co/t5-large).
 
 **Architecture**: T5's architecture is a unified encoder-decoder structure that processes input text through the encoder and generates output through the decoder, with shared weights and a comprehensive training approach for various NLP tasks.
 
@@ -38,7 +38,7 @@ mBART is an extension of BART designed for multilingual translation tasks. It is
 
 #### 2. **T5 (Text-to-Text Transfer Transformer)**
 
-In addition to its capabilities for summarization, T5 is also effective for translation tasks due to its flexible text-to-text approach. The pretrained weights used for T5 in translation tasks are sourced from **"t5-large"** on [Hugging Face](https://huggingface.co/t5-large).
+In addition to its capabilities for summarization, T5 can be fine-tuned for translation thanks to its text-to-text approach. Inputs are prefixed with `translate English to Spanish: `. Note that the original T5 was pretrained mostly on English (C4) and only on English→German/French/Romanian translation, so English→Spanish has to be learned during fine-tuning. The pretrained weights used for T5 in translation tasks are sourced from **"t5-large"** on [Hugging Face](https://huggingface.co/t5-large).
 
 **Architecture**: T5's encoder-decoder structure is equally applicable for translation, processing the source language text through the encoder and generating the target language translation via the decoder.
 
@@ -46,18 +46,48 @@ In addition to its capabilities for summarization, T5 is also effective for tran
 
 ### Training Setup
 
-For each model, the following training configuration is used:
+For each model, the following training configuration is used (set under `trainer.params` in `configs/model/*.yaml`):
 
 -   **Batch Size**: 16
--   **Learning Rate**: 3e-5
--   **Max Epochs**: 10
+-   **Optimizer**: AdamW, learning rate 3e-5, weight decay 0.01
+-   **Max Epochs**: 5, with early stopping on validation loss
 -   **Learning Rate Scheduler**: Step-based with `lr_step_size` set to 10 and `lr_gamma` set to 0.1
--   **Loss Metric**: Cross-Entropy Loss
+-   **Loss**: token-level cross-entropy computed by the Hugging Face model, with padding ignored
+-   **Seed**: 42
+
+### Evaluation
+
+-   **Translation**: corpus-level SacreBLEU
+-   **Summarization**: corpus-level ROUGE-1/2/L F-measure
+-   **Perplexity**: `exp` of the mean validation/test loss over the epoch. It is only comparable between models that share a tokenizer.
+-   Outputs are generated with beam search (4 beams) up to `max_target_length` tokens.
 
 ### Implementation Notes
 
--   **BART**, **Legal-BERT**, and **T5** for summarization are implemented with the `AutoModelForSeq2SeqLM` and custom configurations for handling long input sequences.
--   **mBART** and **T5** for translation are implemented similarly, utilizing pretrained tokenizers such as `MBart50Tokenizer` for multilingual support.
+-   **BART** and **T5** are loaded with `AutoModelForSeq2SeqLM`; **Legal-BERT** is built as a BERT2BERT `EncoderDecoderModel`.
+-   **mBART** uses `MBart50Tokenizer` with the `en_XX`/`es_XX` language codes, and generation is forced to start with `es_XX`.
+-   Multi-LexSum source documents are much longer than the 512-token input limit, so only the beginning of each case is seen by the models.
+-   TED talks are split into line-aligned sentence pairs before tokenization.
+-   Casing, punctuation and accents are preserved during preprocessing.
+
+## Usage
+
+```bash
+pip install -r requirements.txt   # or: conda env create -f environment.yml
+export PROJECT_ROOT=$(pwd)
+
+# train one model on one dataset (see train.sh for all combinations)
+python src/train.py model=t5_translate data=europarl task_name=t5_europarl
+
+# evaluate a checkpoint
+python src/eval.py model=t5_translate data=europarl ckpt_path=/path/to/checkpoint.ckpt
+
+# fast offline tests, and the tests that download models/datasets
+pytest
+pytest -m integration
+```
+
+`data.dataset.subset_fraction` controls how much of each split is used (1% for EuroParl by default).
 
 ## Sources of Pretrained Weights
 
@@ -80,9 +110,11 @@ The EuroParl dataset, accessible [here](https://huggingface.co/datasets/Helsinki
 
 ### 3. **TED Talks (IWSLT)**
 
-The TED Talks dataset, available [here](https://huggingface.co/datasets/IWSLT/ted_talks_iwslt), is sourced from the International Workshop on Spoken Language Translation (IWSLT). It includes English transcripts of TED Talks, featuring diverse topics and speaking styles. The dataset is used to evaluate models on spoken language summarization, which involves understanding informal and complex sentence structures.
+The TED Talks dataset, available [here](https://huggingface.co/datasets/IWSLT/ted_talks_iwslt), is sourced from the International Workshop on Spoken Language Translation (IWSLT). It includes transcripts of TED Talks and their translations, featuring diverse topics and speaking styles. The dataset is used to evaluate English→Spanish translation of spoken, informal language.
 
 ## Progress Report Results Overview
+
+> **Note:** the figures and conclusions below were produced before several pipeline bugs were fixed: perplexity was computed as `exp(loss / num_tokens)`, the splits were reduced to roughly 0.01% of the data, padding was included in the loss, mBART had no target-language code, T5 had no task prefix, Spanish accents were stripped, and the Legal-BERT decoder was randomly initialized. The results need to be regenerated before the comparisons below can be relied on.
 
 ### Translation Models on TED Talks Dataset
 
@@ -122,9 +154,9 @@ The project results showed distinct performances across different models for sum
 
 #### Summarization Tasks
 
-**LexiSum Dataset**:
+**Multi-LexSum Dataset**:
 
-1. **T5** consistently achieved the lowest training loss and validation metrics, with a ROUGE-1 score in the range of approximately **0.4 to 0.45**, which is above the typical baseline of **0.4 to 0.6** for good performance. ROUGE-2 and ROUGE-L scores also exceeded common baselines.
+1. **T5** consistently achieved the lowest training loss and validation metrics, with a ROUGE-1 score in the range of approximately **0.4 to 0.45**, which falls in the **0.4 to 0.6** range typically considered good. ROUGE-2 and ROUGE-L scores also exceeded common baselines.
 2. **BART** had reasonable performance with moderate training loss and validation perplexity, though it struggled to match the ROUGE scores seen with T5.
 3. **Legal-BERT**, despite being trained on legal corpora, exhibited higher training loss and validation perplexity. While it had decent ROUGE scores, particularly in domain-specific texts, they did not match the performance of T5.
 
@@ -138,13 +170,13 @@ The project results showed distinct performances across different models for sum
 #### 1. **Why T5 Might Be Outperforming Legal-BERT and BART**:
 
 -   **Unified Text-to-Text Approach**: T5's consistent approach of treating all NLP tasks as a text-to-text problem may enhance its generalization capabilities, making it versatile across both summarization and translation tasks.
--   **Seq2Seq Optimization**: While BART is a robust seq2seq model, Legal-BERT is not inherently seq2seq, requiring adaptations that may affect performance. Legal-BERT's decoder configuration, such as the use of GPT-2, may need further finetuning to improve output quality.
+-   **Seq2Seq Optimization**: While BART is a robust seq2seq model, Legal-BERT is not inherently seq2seq, requiring adaptations that may affect performance. In these runs its GPT-2 decoder was randomly initialized and used a different vocabulary from the encoder's tokenizer, which alone explains much of the gap; it is now a BERT2BERT model.
 -   **Task Flexibility**: T5's pretraining includes diverse tasks, potentially enabling it to adapt better to various summarization and translation needs compared to models pre-trained primarily on denoising or domain-specific text.
 
 #### 2. **Why T5 Might Be Better Than mBART for Translation**:
 
 -   **Consistent Training Objectives**: T5's architecture is designed for seamless text-to-text operations, allowing it to handle translation with fewer domain-specific adjustments.
--   **Training Data and Pretraining**: T5's pretraining spans a broader range of language pairs and tasks, possibly giving it an advantage over mBART's specialized multilingual setup.
+-   **Training Data and Pretraining**: T5 was pretrained on a broad mix of tasks, but its data is English-centric and its pretraining translation pairs did not include Spanish, whereas mBART-50 was pretrained on 50 languages. In these runs mBART was also never told the target language (no `es_XX` code), which likely explains much of its gap.
 -   **Efficiency in Attention Mechanisms**: T5's model structure might offer more efficient cross-lingual representation compared to mBART's extensive multilingual capacity, which could lead to more computational overhead.
 
 ### Future Work
@@ -160,4 +192,4 @@ Given the computational constraints:
 -   **ROUGE-2**: T5 scored in the **0.2 to 0.3** range, aligning with the typical baseline for strong performance.
 -   **ROUGE-L**: T5's scores were around **0.3 to 0.4**, meeting expectations for good abstractive summarization.
 
-Perplexity was lowest for T5, reinforcing its effectiveness. For computationally constrained settings, investing resources into optimizing T5 yields the best return on performance across tasks.
+Perplexity values from these runs are not meaningful (it was computed as `exp(loss / num_tokens)`, which is close to 1 for every model) and, because the models use different tokenizers, perplexity cannot be compared across them anyway. For computationally constrained settings, investing resources into optimizing T5 yields the best return on performance across tasks.
