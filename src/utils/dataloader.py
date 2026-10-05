@@ -2,7 +2,7 @@ import re
 from loguru import logger
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, MBart50Tokenizer
+from transformers import AutoTokenizer
 from datasets import load_dataset
 
 class CorpusDataset:
@@ -43,10 +43,11 @@ class CorpusDataset:
 
     def tokenize(self, dataset):
         """Tokenize the dataset using the specified tokenizer."""
-        if self.cfg.tokenization.model_name == "facebook/mbart-large-50-many-to-many-mmt":
-            tokenizer = MBart50Tokenizer.from_pretrained(self.cfg.tokenization.model_name)
-        else:
-            tokenizer = AutoTokenizer.from_pretrained(self.cfg.tokenization.model_name)
+        tokenizer = AutoTokenizer.from_pretrained(self.cfg.tokenization.model_name)
+        if hasattr(tokenizer, "lang_code_to_id"):
+            # mBART-50 needs language codes (e.g. en_XX, es_XX) prepended to source and target
+            tokenizer.src_lang = self.mbart_lang_code(tokenizer, self.cfg.dataset.source)
+            tokenizer.tgt_lang = self.mbart_lang_code(tokenizer, self.cfg.dataset.target)
         self.pad_token_id = tokenizer.pad_token_id
 
         max_length = self.cfg.tokenization.max_length
@@ -66,7 +67,7 @@ class CorpusDataset:
             )
             
             label_tokenized = tokenizer(
-                label_text,
+                text_target=label_text,
                 return_tensors="pt",
                 max_length=max_length,  
                 truncation=True,
@@ -130,6 +131,14 @@ class CorpusDataset:
         dataset = self.load_dataset()
         splits = self.split_dataset(dataset)
         return tuple(self.prepare_split(ds) for ds in splits)
+
+    @staticmethod
+    def mbart_lang_code(tokenizer, lang):
+        """Map an ISO language code like 'es' to the mBART-50 code 'es_XX'."""
+        for code in tokenizer.lang_code_to_id:
+            if code.split("_")[0] == lang:
+                return code
+        raise ValueError(f"Language '{lang}' is not supported by mBART-50")
 
     def collate_fn(self, batch):
         """Pad variable-length examples. Labels are padded with -100 so padding is ignored by the loss."""

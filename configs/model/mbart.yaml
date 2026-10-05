@@ -3,6 +3,8 @@ _target_: src.models.translation.mBART.initialize
 params:
   name: "facebook/mbart-large-50-many-to-many-mmt"
   task: "translation"
+  src_lang: "en_XX"  # mBART-50 language codes, must match the data source/target
+  tgt_lang: "es_XX"
   max_input_length: 512
   logging_frequency: 10
   logging: true

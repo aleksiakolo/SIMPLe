@@ -8,6 +8,12 @@ class mBART(LitBaseModel):
         logger.info("Initializing mBART translation model...")
         super().__init__(cfg)
         self.tokenizer = MBart50Tokenizer.from_pretrained(self.cfg.params.name)
+        self.tokenizer.src_lang = self.cfg.params.src_lang
+        self.tokenizer.tgt_lang = self.cfg.params.tgt_lang
+        # Without this mBART-50 does not know which language to generate
+        tgt_lang_id = self.tokenizer.lang_code_to_id[self.cfg.params.tgt_lang]
+        self.model.config.forced_bos_token_id = tgt_lang_id
+        self.model.generation_config.forced_bos_token_id = tgt_lang_id
         logger.info("mBART translation model initialized successfully.")
 
     def _build_model(self):
