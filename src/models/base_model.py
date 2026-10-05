@@ -26,7 +26,6 @@ class LitBaseModel(Module, pl.LightningModule):
         super().__init__()
         self.cfg = cfg
         self.save_hyperparameters(logger=False)
-        self.logging_frequency = getattr(self.cfg.params, "logging_frequency", 10)
 
         # Initialize the model architecture and tokenizer
         self.model = self._build_model()

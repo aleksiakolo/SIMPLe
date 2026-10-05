@@ -32,6 +32,3 @@ seed: 42
 params:
   batch_size: ${model.trainer.params.batch_size}
   num_epochs: ${model.trainer.params.max_epochs}
-
-run:
-  dir: ${paths.log_dir}/${task_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}

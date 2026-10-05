@@ -19,7 +19,3 @@ tokenization:
   input_prefix: ${oc.select:model.params.input_prefix,""}  # task prefix, only set for T5
   max_length: 128  # source tokens
   max_target_length: 128  # target tokens
-
-output:
-  dir: "/Users/aleksia/Desktop/ted_talks_data"
-  save_format: "json"  # options: "json", "csv", or "parquet"

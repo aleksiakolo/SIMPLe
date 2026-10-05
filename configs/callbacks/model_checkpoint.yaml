@@ -3,11 +3,11 @@
 model_checkpoint:
   _target_: pytorch_lightning.callbacks.ModelCheckpoint
   dirpath: ${paths.output_dir}/checkpoints/${task_name} # directory to save the model file
-  filename: "autoencoder-{epoch:02d}" # checkpoint filename
+  filename: "{epoch:02d}-{val_loss:.3f}" # checkpoint filename
   monitor: "val_loss" # name of the logged metric which determines when model is improving
   verbose: false # verbosity mode
   save_last: null # additionally always save an exact copy of the last checkpoint to a file last.ckpt
-  save_top_k: 3 # save k best models (determined by above metric)
+  save_top_k: 1 # save k best models (large models are several GB per checkpoint) (determined by above metric)
   mode: "min" # "max" means higher metric value is better, can be also "min"
   auto_insert_metric_name: true # when True, the checkpoints filenames will contain the metric name
   save_weights_only: false # if True, then only the model’s weights will be saved

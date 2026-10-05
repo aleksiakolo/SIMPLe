@@ -19,7 +19,3 @@ tokenization:
   # source tokens; documents are far longer, so inputs are truncated (Legal-BERT has 512 positions)
   max_length: 512
   max_target_length: 256  # summary tokens, should match the model's max_target_length
-
-output:
-  dir: "/Users/aleksia/Desktop/multi_lexsum_data"
-  save_format: "json"  # options: "json", "csv", or "parquet"
