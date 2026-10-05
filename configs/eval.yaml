@@ -1,7 +1,9 @@
+# usage: python src/eval.py model=<model> data=<data> ckpt_path=/path/to/checkpoint.ckpt
 defaults:
   - _self_
-  - data: 
-  - model: 
+  - data: europarl
+  - model: null
+  - logger: csv
   - trainer: default
   - paths: default
   - hydra: default
@@ -9,6 +11,12 @@ defaults:
 task_name: "eval"
 
 tags: ["dev"]
+
+seed: 42
+
+params:
+  batch_size: ${model.trainer.params.batch_size}
+  num_epochs: 1
 
 # checkpoint path (necessary for evaluation)
 ckpt_path: ???
