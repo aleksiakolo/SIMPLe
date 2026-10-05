@@ -6,6 +6,7 @@ dataset:
   test_size: 0.1
   val_size: 0.15
   seed: 42
+  subset_fraction: 0.01  # ~2M pairs in total, so 1% of each split is still ~15k training pairs
 
 preprocessing:
   lowercase: true

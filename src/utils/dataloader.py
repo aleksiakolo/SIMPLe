@@ -83,20 +83,36 @@ class CorpusDataset:
 
 
     def split_dataset(self, dataset):
-        """Split the dataset into train, validation, and test sets."""
+        """Return (train, val, test) splits.
+
+        The dataset's own validation/test splits are used when they exist; otherwise they are
+        carved out of the training split using test_size and val_size (fractions of the full set).
+        An optional subset_fraction is applied once to each split to reduce compute.
+        """
         logger.info("Splitting the dataset into training, validation, and test sets")
-        train_split = dataset["train"]
+        seed = self.cfg.dataset.seed
+        train_ds = dataset["train"]
 
-        # Create the test split
-        train_test_split = train_split.train_test_split(test_size=self.cfg.dataset.test_size, seed=self.cfg.dataset.seed)
-        test_ds = train_test_split['test'].select(range(int(0.01 * len(train_test_split['test']))))
-        remaining_train = train_test_split['train'].select(range(int(0.01 * len(train_test_split['train']))))
+        if "test" in dataset:
+            test_ds = dataset["test"]
+        else:
+            split = train_ds.train_test_split(test_size=self.cfg.dataset.test_size, seed=seed)
+            train_ds, test_ds = split["train"], split["test"]
 
-        # Create the validation split from the remaining training data
-        val_size = self.cfg.dataset.val_size / (1 - self.cfg.dataset.test_size)  # Adjust for the remaining data
-        train_val_split = remaining_train.train_test_split(test_size=val_size, seed=self.cfg.dataset.seed)
-        train_ds = train_val_split['train'].select(range(int(0.01 * len(train_val_split['train']))))
-        val_ds = train_val_split['test'].select(range(int(0.01 * len(train_val_split['test']))))
+        if "validation" in dataset:
+            val_ds = dataset["validation"]
+        else:
+            # val_size is a fraction of the full dataset, so rescale it to what remains after the test split
+            remaining = 1 - (0 if "test" in dataset else self.cfg.dataset.test_size)
+            split = train_ds.train_test_split(test_size=self.cfg.dataset.val_size / remaining, seed=seed)
+            train_ds, val_ds = split["train"], split["test"]
+
+        fraction = self.cfg.dataset.get("subset_fraction", 1.0)
+        if fraction < 1.0:
+            train_ds, val_ds, test_ds = (
+                ds.shuffle(seed=seed).select(range(max(1, int(fraction * len(ds)))))
+                for ds in (train_ds, val_ds, test_ds)
+            )
 
         logger.info(f"Training set size: {len(train_ds)}")
         logger.info(f"Validation set size: {len(val_ds)}")
@@ -104,14 +120,17 @@ class CorpusDataset:
 
         return train_ds, val_ds, test_ds
 
+    def prepare_split(self, split_ds):
+        """Preprocess and tokenize a single split, dropping the raw columns."""
+        preprocessed = split_ds.map(self.preprocess_text, remove_columns=split_ds.column_names)
+        return self.tokenize(preprocessed)
+
     def process_and_save(self):
-        """Complete pipeline: load, preprocess, tokenize, split, and save the dataset."""
+        """Complete pipeline: load, split, then preprocess and tokenize each split."""
         dataset = self.load_dataset()
-        preprocessed_dataset = dataset.map(self.preprocess_text, remove_columns=["translation"])
-        tokenized_dataset = self.tokenize(preprocessed_dataset)
-        train_ds, val_ds, test_ds = self.split_dataset(tokenized_dataset)
-        return train_ds, val_ds, test_ds
-    
+        splits = self.split_dataset(dataset)
+        return tuple(self.prepare_split(ds) for ds in splits)
+
     def collate_fn(self, batch):
         """Pad variable-length examples. Labels are padded with -100 so padding is ignored by the loss."""
         def pad(key, value):
@@ -187,14 +206,6 @@ class MultiLexSumDataset(CorpusDataset):
             "input_text": input_text,
             "label_text": label_text
         }
-    
-    def process_and_save(self):
-        """Complete pipeline: load, preprocess, tokenize, split, and save the dataset."""
-        dataset = self.load_dataset()
-        preprocessed_dataset = dataset.map(self.preprocess_text)
-        tokenized_dataset = self.tokenize(preprocessed_dataset)
-        train_ds, val_ds, test_ds = self.split_dataset(tokenized_dataset)
-        return train_ds, val_ds, test_ds
 
 
 def get_dataloader(cfg, split="train", batch_size=2, shuffle=True, num_workers=2, persistent_workers=True):
