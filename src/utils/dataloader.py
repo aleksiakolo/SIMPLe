@@ -24,22 +24,22 @@ class CorpusDataset:
         input_text = examples["translation"].get(source, "")
         label_text = examples["translation"].get(target, "")
 
-        if self.cfg.preprocessing.lowercase:
-            input_text = input_text.lower()
-            label_text = label_text.lower()
-
-        if self.cfg.preprocessing.remove_non_alphanumeric:
-            input_text = re.sub(r"[^a-zA-Z0-9\s]", "", input_text)
-            label_text = re.sub(r"[^a-zA-Z0-9\s]", "", label_text)
-
-        if self.cfg.preprocessing.remove_extra_whitespace:
-            input_text = re.sub(r"\s+", " ", input_text).strip()
-            label_text = re.sub(r"\s+", " ", label_text).strip()
-
         return {
-            "input_text": input_text,
-            "label_text": label_text
+            "input_text": self.clean_text(input_text),
+            "label_text": self.clean_text(label_text)
         }
+
+    def clean_text(self, text):
+        """Apply the configured normalisation. Pretrained seq2seq models expect cased text with
+        punctuation, so lowercasing and character stripping should normally stay off."""
+        if self.cfg.preprocessing.lowercase:
+            text = text.lower()
+        if self.cfg.preprocessing.remove_non_alphanumeric:
+            # \w is Unicode-aware, so accented letters (á, ñ, ü, ...) are kept
+            text = re.sub(r"[^\w\s]", "", text)
+        if self.cfg.preprocessing.remove_extra_whitespace:
+            text = re.sub(r"\s+", " ", text).strip()
+        return text
 
     def tokenize(self, dataset):
         """Tokenize the dataset using the specified tokenizer."""
@@ -192,19 +192,9 @@ class MultiLexSumDataset(CorpusDataset):
         summary_length = self.cfg.dataset.target_summary_length
         label_text = examples[f"summary/{summary_length}"]  
 
-        if self.cfg.preprocessing.lowercase:
-            input_text = input_text.lower()
-            label_text = label_text.lower()
-        if self.cfg.preprocessing.remove_non_alphanumeric:
-            input_text = re.sub(r"[^a-zA-Z0-9\s]", "", input_text)
-            label_text = re.sub(r"[^a-zA-Z0-9\s]", "", label_text)
-        if self.cfg.preprocessing.remove_extra_whitespace:
-            input_text = re.sub(r"\s+", " ", input_text).strip()
-            label_text = re.sub(r"\s+", " ", label_text).strip()
-
         return {
-            "input_text": input_text,
-            "label_text": label_text
+            "input_text": self.clean_text(input_text),
+            "label_text": self.clean_text(label_text)
         }
 
 

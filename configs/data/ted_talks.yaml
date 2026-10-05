@@ -10,8 +10,8 @@ dataset:
   subset_fraction: 1.0  # fraction of each split to keep (lower it to save compute)
 
 preprocessing:
-  lowercase: true
-  remove_non_alphanumeric: true
+  lowercase: false  # keep casing: pretrained models and references are cased
+  remove_non_alphanumeric: false  # keep punctuation and accents (á, ñ, ¿, ...)
   remove_extra_whitespace: true
 
 tokenization:
