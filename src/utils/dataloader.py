@@ -8,6 +8,7 @@ from datasets import load_dataset
 class CorpusDataset:
     def __init__(self, cfg):
         self.cfg = cfg
+        self.pad_token_id = 0  # overwritten once the tokenizer is loaded
 
     def load_dataset(self):
         """Load the dataset from Hugging Face."""
@@ -46,7 +47,8 @@ class CorpusDataset:
             tokenizer = MBart50Tokenizer.from_pretrained(self.cfg.tokenization.model_name)
         else:
             tokenizer = AutoTokenizer.from_pretrained(self.cfg.tokenization.model_name)
-        
+        self.pad_token_id = tokenizer.pad_token_id
+
         max_length = self.cfg.tokenization.max_length
         logger.info("Tokenizing the dataset ...")
 
@@ -110,29 +112,19 @@ class CorpusDataset:
         train_ds, val_ds, test_ds = self.split_dataset(tokenized_dataset)
         return train_ds, val_ds, test_ds
     
-    @staticmethod
-    def collate_fn(batch):
-        """Custom collate function to handle variable-length input for DataLoader."""
-        input_ids = torch.nn.utils.rnn.pad_sequence(
-            [torch.tensor(item["input_ids"], dtype=torch.long) for item in batch], 
-            batch_first=True, 
-            padding_value=0
-        )
-        attention_mask = torch.nn.utils.rnn.pad_sequence(
-            [torch.tensor(item["attention_mask"], dtype=torch.long) for item in batch], 
-            batch_first=True, 
-            padding_value=0
-        )
-        labels = torch.nn.utils.rnn.pad_sequence(
-            [torch.tensor(item["labels"], dtype=torch.long) for item in batch], 
-            batch_first=True, 
-            padding_value=0
-        )
+    def collate_fn(self, batch):
+        """Pad variable-length examples. Labels are padded with -100 so padding is ignored by the loss."""
+        def pad(key, value):
+            return torch.nn.utils.rnn.pad_sequence(
+                [torch.tensor(item[key], dtype=torch.long) for item in batch],
+                batch_first=True,
+                padding_value=value
+            )
 
         return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "labels": labels
+            "input_ids": pad("input_ids", self.pad_token_id),
+            "attention_mask": pad("attention_mask", 0),
+            "labels": pad("labels", -100)
         }
 
 

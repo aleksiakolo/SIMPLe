@@ -126,7 +126,8 @@ class LitBaseModel(Module, pl.LightningModule):
 
         # Decode outputs and labels for comparison
         decoded_preds = self.tokenizer.batch_decode(generated_outputs, skip_special_tokens=True)
-        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+        label_ids = labels.masked_fill(labels == -100, self.tokenizer.pad_token_id)
+        decoded_labels = self.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
 
         # Log metrics based on the task
         if self.cfg.params.task == "summarization":
@@ -170,7 +171,8 @@ class LitBaseModel(Module, pl.LightningModule):
 
         # Decode outputs and labels for comparison
         decoded_preds = self.tokenizer.batch_decode(generated_outputs, skip_special_tokens=True)
-        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+        label_ids = labels.masked_fill(labels == -100, self.tokenizer.pad_token_id)
+        decoded_labels = self.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
 
         # Log metrics based on the task
         if self.cfg.params.task == "summarization":
