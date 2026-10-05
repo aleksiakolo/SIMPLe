@@ -1,5 +1,6 @@
-# train.sh
 #!/bin/bash
+# train.sh
+set -e
 
 export PROJECT_ROOT="$(dirname "$(realpath "$0")")"
 
