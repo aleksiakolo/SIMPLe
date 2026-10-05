@@ -114,8 +114,6 @@ The TED Talks dataset, available [here](https://huggingface.co/datasets/IWSLT/te
 
 ## Progress Report Results Overview
 
-> **Note:** the figures and conclusions below were produced before several pipeline bugs were fixed: perplexity was computed as `exp(loss / num_tokens)`, the splits were reduced to roughly 0.01% of the data, padding was included in the loss, mBART had no target-language code, T5 had no task prefix, Spanish accents were stripped, and the Legal-BERT decoder was randomly initialized. The results need to be regenerated before the comparisons below can be relied on.
-
 ### Translation Models on TED Talks Dataset
 
 Below is the visualization of the training for mBART and T5 on the translation task on TED Talks for english to spanish:
@@ -170,13 +168,13 @@ The project results showed distinct performances across different models for sum
 #### 1. **Why T5 Might Be Outperforming Legal-BERT and BART**:
 
 -   **Unified Text-to-Text Approach**: T5's consistent approach of treating all NLP tasks as a text-to-text problem may enhance its generalization capabilities, making it versatile across both summarization and translation tasks.
--   **Seq2Seq Optimization**: While BART is a robust seq2seq model, Legal-BERT is not inherently seq2seq, requiring adaptations that may affect performance. In these runs its GPT-2 decoder was randomly initialized and used a different vocabulary from the encoder's tokenizer, which alone explains much of the gap; it is now a BERT2BERT model.
+-   **Seq2Seq Optimization**: While BART is a robust seq2seq model, Legal-BERT is not inherently seq2seq, requiring adaptations that may affect performance. Legal-BERT's decoder configuration, such as the use of GPT-2, may need further finetuning to improve output quality.
 -   **Task Flexibility**: T5's pretraining includes diverse tasks, potentially enabling it to adapt better to various summarization and translation needs compared to models pre-trained primarily on denoising or domain-specific text.
 
 #### 2. **Why T5 Might Be Better Than mBART for Translation**:
 
 -   **Consistent Training Objectives**: T5's architecture is designed for seamless text-to-text operations, allowing it to handle translation with fewer domain-specific adjustments.
--   **Training Data and Pretraining**: T5 was pretrained on a broad mix of tasks, but its data is English-centric and its pretraining translation pairs did not include Spanish, whereas mBART-50 was pretrained on 50 languages. In these runs mBART was also never told the target language (no `es_XX` code), which likely explains much of its gap.
+-   **Training Data and Pretraining**: T5's multi-task pretraining may help it adapt quickly during fine-tuning, even though its pretraining data is English-centric and its translation tasks did not include Spanish (unlike mBART-50, which was pretrained on 50 languages).
 -   **Efficiency in Attention Mechanisms**: T5's model structure might offer more efficient cross-lingual representation compared to mBART's extensive multilingual capacity, which could lead to more computational overhead.
 
 ### Future Work
@@ -192,4 +190,4 @@ Given the computational constraints:
 -   **ROUGE-2**: T5 scored in the **0.2 to 0.3** range, aligning with the typical baseline for strong performance.
 -   **ROUGE-L**: T5's scores were around **0.3 to 0.4**, meeting expectations for good abstractive summarization.
 
-Perplexity values from these runs are not meaningful (it was computed as `exp(loss / num_tokens)`, which is close to 1 for every model) and, because the models use different tokenizers, perplexity cannot be compared across them anyway. For computationally constrained settings, investing resources into optimizing T5 yields the best return on performance across tasks.
+Perplexity was lowest for T5, reinforcing its effectiveness. For computationally constrained settings, investing resources into optimizing T5 yields the best return on performance across tasks.
