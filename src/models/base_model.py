@@ -30,6 +30,9 @@ class LitBaseModel(Module, pl.LightningModule):
 
         # Initialize the model architecture and tokenizer
         self.model = self._build_model()
+        # from_pretrained returns the model in eval mode and Lightning keeps submodule modes,
+        # so switch to train mode explicitly or dropout stays disabled during fine-tuning
+        self.model.train()
         self.tokenizer = self._build_tokenizer()
 
         # Corpus-level metrics: updated every batch, computed once per epoch (separate state for val and test)
