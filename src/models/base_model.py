@@ -85,9 +85,9 @@ class LitBaseModel(Module, pl.LightningModule):
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
-    def calculate_perplexity(self, loss: torch.Tensor, num_tokens: int) -> torch.Tensor:
-        """Calculates perplexity from the given loss and number of tokens."""
-        return torch.exp(loss / num_tokens)
+    def calculate_perplexity(self, loss: torch.Tensor) -> torch.Tensor:
+        """Calculates perplexity from the mean per-token cross-entropy loss."""
+        return torch.exp(loss)
     
     def log_val_outputs(self, outputs, stage="Validation"):
         """Logs validation step outputs."""
@@ -113,11 +113,8 @@ class LitBaseModel(Module, pl.LightningModule):
         outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
         val_loss = outputs.loss
 
-        # Calculate number of non-padding tokens in the batch
-        num_tokens = (labels != self.tokenizer.pad_token_id).sum().item()
-
-        # Compute perplexity if there are tokens
-        perplexity = torch.exp(val_loss / num_tokens) if num_tokens > 0 else torch.tensor(float('inf'))
+        # HF loss is already the mean per-token cross-entropy, so perplexity is just exp(loss)
+        perplexity = torch.exp(val_loss)
         self.log('val_perplexity', perplexity, on_epoch=True, prog_bar=True)
 
         # Generate outputs for metric calculations
@@ -160,11 +157,8 @@ class LitBaseModel(Module, pl.LightningModule):
         outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
         test_loss = outputs.loss
 
-        # Calculate number of non-padding tokens in the batch
-        num_tokens = (labels != self.tokenizer.pad_token_id).sum().item()
-
-        # Compute perplexity if there are tokens
-        perplexity = torch.exp(test_loss / num_tokens) if num_tokens > 0 else torch.tensor(float('inf'))
+        # HF loss is already the mean per-token cross-entropy, so perplexity is just exp(loss)
+        perplexity = torch.exp(test_loss)
         self.log('test_perplexity', perplexity, on_epoch=True, prog_bar=True)
 
         # Generate outputs for metric calculations
