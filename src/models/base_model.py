@@ -1,21 +1,17 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TypeVar, Dict
+from typing import TypeVar
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import pytorch_lightning as pl
 from loguru import logger
 from omegaconf import DictConfig
 from torchmetrics.text.rouge import ROUGEScore
 from torchmetrics.text.bleu import BLEUScore
-import nltk
 from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 from transformers import AutoTokenizer
-
-nltk.download('punkt')
 
 T = TypeVar("T", bound="Module")
 
@@ -26,20 +22,6 @@ class Module(ABC):
         return cls(DictConfig(kwargs, flags={"allow_objects": True}))
 
 
-class BaseModel(nn.Module, Module):
-    def __init__(self):
-        super().__init__()
-
-    @abstractmethod
-    def forward(self, data: torch.Tensor) -> torch.Tensor:
-        """Abstract method for forward pass"""
-        pass
-
-    def get_reps(self, x: torch.Tensor) -> torch.Tensor:
-        """Returns the encoded representations from the encoder."""
-        return self.encoder(x)
-
-
 class LitBaseModel(Module, pl.LightningModule):
     def __init__(self, cfg: DictConfig):
         super().__init__()
@@ -47,35 +29,28 @@ class LitBaseModel(Module, pl.LightningModule):
         self.save_hyperparameters(logger=False)
         self.logging_frequency = getattr(self.cfg.params, "logging_frequency", 10)
 
-        # Initialize the model architecture
+        # Initialize the model architecture and tokenizer
         self.model = self._build_model()
-        self.criterion = self._initialize_criterion()
+        self.tokenizer = self._build_tokenizer()
 
         # Initialize metrics based on task
         if self.cfg.params.task == "summarization":
-            self.rouge = ROUGEScore()
+            # rougeLsum (on by default) needs nltk punkt data; only these three are logged
+            self.rouge = ROUGEScore(rouge_keys=("rouge1", "rouge2", "rougeL"))
         elif self.cfg.params.task == "translation":
             self.bleu = BLEUScore()
 
         self.cache_dir = Path(cfg.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(self.cfg.params.name)
-
     @abstractmethod
-    def _build_model(self) -> BaseModel:
+    def _build_model(self) -> nn.Module:
         """Abstract method for constructing the model architecture."""
         pass
 
-    @abstractmethod
-    def _initialize_criterion(self) -> nn.Module:
-        """Abstract method for initializing the loss function."""
-        pass
-
-    def forward(self) -> torch.Tensor:
-        """Forward pass for Lightning module."""
-        pass
+    def _build_tokenizer(self):
+        """Load the tokenizer matching the model. The loss is computed by the HF model itself."""
+        return AutoTokenizer.from_pretrained(self.cfg.params.name)
 
     def training_step(self, batch, batch_idx):
         """Defines the training step."""

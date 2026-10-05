@@ -1,85 +1,44 @@
-import torch
-from transformers import AutoModelForSeq2SeqLM, MBartForConditionalGeneration, AutoTokenizer, MBart50Tokenizer
+from transformers import AutoModelForSeq2SeqLM, MBartForConditionalGeneration, MBart50Tokenizer
 from src.models.base_model import LitBaseModel
 from loguru import logger
 
-class mBART(LitBaseModel):
+
+class TranslationModel(LitBaseModel):
     def __init__(self, cfg):
-        logger.info("Initializing mBART translation model...")
+        logger.info(f"Initializing {self.__class__.__name__}...")
         super().__init__(cfg)
-        self.tokenizer = MBart50Tokenizer.from_pretrained(self.cfg.params.name)
+        logger.info(f"{self.__class__.__name__} initialized successfully.")
+
+    def _build_model(self):
+        """Initialize the model for translation."""
+        model = AutoModelForSeq2SeqLM.from_pretrained(self.cfg.params.name)
+        logger.info(f"Model {self.cfg.params.name} loaded for {self.__class__.__name__}.")
+        return model
+
+    def forward(self, input_ids, attention_mask=None, labels=None):
+        """Forward pass for translation."""
+        return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+
+
+class mBART(TranslationModel):
+    def __init__(self, cfg):
+        super().__init__(cfg)
         self.tokenizer.src_lang = self.cfg.params.src_lang
         self.tokenizer.tgt_lang = self.cfg.params.tgt_lang
         # Without this mBART-50 does not know which language to generate
         tgt_lang_id = self.tokenizer.lang_code_to_id[self.cfg.params.tgt_lang]
         self.model.config.forced_bos_token_id = tgt_lang_id
         self.model.generation_config.forced_bos_token_id = tgt_lang_id
-        logger.info("mBART translation model initialized successfully.")
 
     def _build_model(self):
         """Initialize the mBART model for translation."""
         model = MBartForConditionalGeneration.from_pretrained(self.cfg.params.name)
         logger.info(f"Model {self.cfg.params.name} loaded for mBART translation model.")
         return model
-    
-    def _initialize_criterion(self):
-        """Initialize the criterion for the translation model."""
-        logger.info("Initializing criterion for mBART translation model...")
-        return torch.nn.CrossEntropyLoss()
 
-    def forward(self, input_ids, attention_mask=None, labels=None):
-        """Forward pass for mBART translation."""
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        return outputs
-
-class T5Translation(LitBaseModel):
-    def __init__(self, cfg):
-        logger.info("Initializing T5 translation model...")
-        super().__init__(cfg)
-        self.tokenizer = AutoTokenizer.from_pretrained(self.cfg.params.name)
-        logger.info("T5 translation model initialized successfully.")
-
-    def _build_model(self):
-        """Initialize the T5 model for translation."""
-        model = AutoModelForSeq2SeqLM.from_pretrained(self.cfg.params.name)
-        logger.info(f"Model {self.cfg.params.name} loaded for T5 translation model.")
-        return model
-    
-    def _initialize_criterion(self):
-        """Initialize the criterion for the translation model."""
-        logger.info("Initializing criterion for T5 translation model...")
-        return torch.nn.CrossEntropyLoss()
-
-    def forward(self, input_ids, attention_mask=None, labels=None):
-        """Forward pass for T5 translation."""
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        return outputs
+    def _build_tokenizer(self):
+        return MBart50Tokenizer.from_pretrained(self.cfg.params.name)
 
 
-# Needs further work because so far it has mainly been used for classification
-# and not generation tasks. The encoder and decoder come separately so the architecture
-# needs further work.
-
-
-# class XLMRTranslationModel(LitBaseModel):
-#     def __init__(self, cfg):
-#         logger.info("Initializing XLM-R translation model...")
-#         super().__init__(cfg)
-#         logger.info("XLM-R translation model initialized successfully.")
-
-#     def _build_model(self):
-#         """Initialize the XLM-R model for translation."""
-#         model = AutoModelForSeq2SeqLM.from_pretrained(self.cfg.model.name)
-#         logger.info(f"Model {self.cfg.model.name} loaded for XLMRTranslationModel.")
-#         return model
-    
-#     def _initialize_criterion(self):
-#         """Initialize the criterion for the translation model."""
-#         logger.info("Initializing criterion for XLM-R translation model...")
-#         return torch.nn.CrossEntropyLoss()
-
-#     def forward(self, input_ids, attention_mask=None, labels=None):
-#         """Forward pass for XLM-R translation."""
-#         outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        
-#         return outputs
+class T5Translation(TranslationModel):
+    """T5 translation model (t5-large by default, see configs/model/t5_translate.yaml)."""

@@ -17,6 +17,3 @@ trainer:
     lr_gamma: 0.1
 
 cache_dir: ./tmp
-
-metric:
-  _target_: torch.nn.CrossEntropyLoss
