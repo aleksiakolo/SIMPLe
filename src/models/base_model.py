@@ -8,7 +8,7 @@ import pytorch_lightning as pl
 from omegaconf import DictConfig
 from torchmetrics import MeanMetric
 from torchmetrics.text import ROUGEScore, SacreBLEUScore
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR
 from transformers import AutoTokenizer
 
@@ -118,9 +118,8 @@ class LitBaseModel(Module, pl.LightningModule):
         self._log_epoch_metrics("test")
 
     def configure_optimizers(self):
-        """Configures the optimizer and learning rate scheduler."""
-        optimizer = Adam(self.parameters(), lr=self.cfg.trainer.lr)
-        scheduler = StepLR(
-            optimizer, step_size=self.cfg.trainer.lr_step_size, gamma=self.cfg.trainer.lr_gamma
-        )
+        """Configures the optimizer and learning rate scheduler from the model's trainer params."""
+        params = self.cfg.trainer.params
+        optimizer = AdamW(self.parameters(), lr=params.learning_rate, weight_decay=params.get("weight_decay", 0.01))
+        scheduler = StepLR(optimizer, step_size=params.lr_step_size, gamma=params.lr_gamma)
         return [optimizer], [scheduler]
