@@ -1,5 +1,4 @@
-import torch
-from transformers import AutoModelForSeq2SeqLM, EncoderDecoderModel, GPT2Config, GPT2LMHeadModel, BertModel
+from transformers import AutoModelForSeq2SeqLM, EncoderDecoderModel
 from src.models.base_model import LitBaseModel
 from loguru import logger
 
@@ -26,30 +25,30 @@ class BART(SummarizationModel):
 
 
 class LegalBERT(SummarizationModel):
+    """Legal-BERT warm-started as both encoder and decoder (BERT2BERT).
+
+    Using Legal-BERT on both sides keeps a single vocabulary and tokenizer, and gives the decoder
+    pretrained weights; only the decoder's cross-attention layers start from random initialization.
+    """
+
     def __init__(self, cfg):
         super().__init__(cfg)
-        self.model.config.decoder_start_token_id = self.tokenizer.cls_token_id or self.tokenizer.eos_token_id or 0
-        self.model.config.pad_token_id = self.tokenizer.pad_token_id or 0
+        config = self.model.config
+        config.decoder_start_token_id = self.tokenizer.cls_token_id
+        config.eos_token_id = self.tokenizer.sep_token_id
+        config.pad_token_id = self.tokenizer.pad_token_id
+        config.vocab_size = config.encoder.vocab_size
+        generation_config = self.model.generation_config
+        generation_config.decoder_start_token_id = self.tokenizer.cls_token_id
+        generation_config.bos_token_id = self.tokenizer.cls_token_id
+        generation_config.eos_token_id = self.tokenizer.sep_token_id
+        generation_config.pad_token_id = self.tokenizer.pad_token_id
 
     def _build_model(self):
-        """Initialize LEGAL-BERT as the encoder and a compatible decoder."""
-        logger.info(f"Building encoder-decoder model using {self.cfg.params.name} as the encoder...")
-
-        # Load Legal-BERT as the encoder
-        encoder = BertModel.from_pretrained(self.cfg.params.name)
-
-        # Compatible decoder configuration
-        decoder_config = GPT2Config.from_pretrained("gpt2")
-        decoder_config.is_decoder = True
-        decoder_config.add_cross_attention = True # Cross-attention for seq2seq
-
-        # Initialize the decoder
-        decoder = GPT2LMHeadModel(config=decoder_config)
-
-        # Create an EncoderDecoderModel
-        model = EncoderDecoderModel(encoder=encoder, decoder=decoder)
-
-        logger.info(f"Encoder-decoder model with {self.cfg.params.name} as the encoder built successfully.")
+        """Build an encoder-decoder model with Legal-BERT as both encoder and decoder."""
+        logger.info(f"Building BERT2BERT encoder-decoder model from {self.cfg.params.name}...")
+        model = EncoderDecoderModel.from_encoder_decoder_pretrained(self.cfg.params.name, self.cfg.params.name)
+        logger.info(f"Encoder-decoder model from {self.cfg.params.name} built successfully.")
         return model
 
 
