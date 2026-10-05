@@ -22,8 +22,8 @@ class CorpusDataset:
         target = self.cfg.dataset.target
 
         # Access the nested 'translation' field for both source and target languages
-        input_text = examples["translation"].get(source, "")
-        label_text = examples["translation"].get(target, "")
+        input_text = examples["translation"].get(source) or ""
+        label_text = examples["translation"].get(target) or ""
 
         return {
             "input_text": self.clean_text(input_text),
@@ -57,34 +57,25 @@ class CorpusDataset:
         # T5 needs a task prefix such as "summarize: " or "translate English to Spanish: "
         input_prefix = self.cfg.tokenization.get("input_prefix") or ""
 
-        def tokenize_function(examples):
-            input_text = input_prefix + examples["input_text"]
-            label_text = examples["label_text"]
-
-            # Tokenize input and label as single sequences
-            input_tokenized = tokenizer(
-                input_text,
-                return_tensors="pt",
-                max_length=max_length,  
-                truncation=True,
-                padding=False     
+        def tokenize_function(batch):
+            # Tokenize input and label as single sequences; padding happens per batch in collate_fn
+            inputs = tokenizer(
+                [input_prefix + text for text in batch["input_text"]],
+                max_length=max_length,
+                truncation=True
             )
-            
-            label_tokenized = tokenizer(
-                text_target=label_text,
-                return_tensors="pt",
-                max_length=max_length,  
-                truncation=True,
-                padding=False
+            labels = tokenizer(
+                text_target=batch["label_text"],
+                max_length=max_length,
+                truncation=True
             )
-
             return {
-                "input_ids": input_tokenized["input_ids"][0],  
-                "attention_mask": input_tokenized["attention_mask"][0],
-                "labels": label_tokenized["input_ids"][0]  
+                "input_ids": inputs["input_ids"],
+                "attention_mask": inputs["attention_mask"],
+                "labels": labels["input_ids"]
             }
 
-        return dataset.map(tokenize_function, batched=False)
+        return dataset.map(tokenize_function, batched=True)
 
 
     def split_dataset(self, dataset):
@@ -128,6 +119,11 @@ class CorpusDataset:
     def prepare_split(self, split_ds):
         """Preprocess and tokenize a single split, dropping the raw columns."""
         preprocessed = split_ds.map(self.preprocess_text, remove_columns=split_ds.column_names)
+        # Drop examples with a missing source or target (e.g. Multi-LexSum cases without a short/tiny summary)
+        before = len(preprocessed)
+        preprocessed = preprocessed.filter(lambda ex: bool(ex["input_text"]) and bool(ex["label_text"]))
+        if len(preprocessed) < before:
+            logger.info(f"Dropped {before - len(preprocessed)} examples with an empty source or target")
         return self.tokenize(preprocessed)
 
     def process_and_save(self):
@@ -203,7 +199,8 @@ class MultiLexSumDataset(CorpusDataset):
         """Preprocess text for source and target with selected summary length."""
         input_text = " ".join(examples[self.cfg.dataset.source_field])  
         summary_length = self.cfg.dataset.target_summary_length
-        label_text = examples[f"summary/{summary_length}"]  
+        # Not every case has every summary length; missing ones are None and get filtered out
+        label_text = examples[f"summary/{summary_length}"] or ""
 
         return {
             "input_text": self.clean_text(input_text),
