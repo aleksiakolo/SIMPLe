@@ -16,10 +16,9 @@ preprocessing:
 tokenization:
   model_name: ${model.params.name}
   input_prefix: ${oc.select:model.params.input_prefix,""}  # task prefix, only set for T5
-  truncation: true
-  padding: "max_length"
-  max_length: 512  
-  stride: 128
+  # source tokens; documents are far longer, so inputs are truncated (Legal-BERT has 512 positions)
+  max_length: 512
+  max_target_length: 256  # summary tokens, should match the model's max_target_length
 
 output:
   dir: "/Users/aleksia/Desktop/multi_lexsum_data"

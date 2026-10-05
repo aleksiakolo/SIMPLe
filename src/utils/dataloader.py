@@ -52,6 +52,7 @@ class CorpusDataset:
         self.pad_token_id = tokenizer.pad_token_id
 
         max_length = self.cfg.tokenization.max_length
+        max_target_length = self.cfg.tokenization.get("max_target_length", max_length)
         logger.info("Tokenizing the dataset ...")
 
         # T5 needs a task prefix such as "summarize: " or "translate English to Spanish: "
@@ -66,7 +67,7 @@ class CorpusDataset:
             )
             labels = tokenizer(
                 text_target=batch["label_text"],
-                max_length=max_length,
+                max_length=max_target_length,
                 truncation=True
             )
             return {
@@ -185,8 +186,30 @@ class TedTalksDataset(CorpusDataset):
                 trust_remote_code=True
             )
         else:
-            return load_dataset(self.cfg.dataset.name, trust_remote_code=True) 
-    
+            return load_dataset(self.cfg.dataset.name, trust_remote_code=True)
+
+    def prepare_split(self, split_ds):
+        """Each TED example is a whole talk, so truncating it would cut source and target at
+        unrelated points. Split talks into line-aligned sentence pairs first; talks whose source
+        and target line counts differ cannot be aligned and are dropped."""
+        source, target = self.cfg.dataset.source, self.cfg.dataset.target
+
+        def split_talks(batch):
+            pairs = []
+            for talk in batch["translation"]:
+                src_lines = [line for line in (talk.get(source) or "").split("\n") if line.strip()]
+                tgt_lines = [line for line in (talk.get(target) or "").split("\n") if line.strip()]
+                if len(src_lines) == len(tgt_lines):
+                    pairs.extend({source: s, target: t} for s, t in zip(src_lines, tgt_lines))
+            return {"translation": pairs}
+
+        talks = len(split_ds)
+        split_ds = split_ds.map(split_talks, batched=True, remove_columns=split_ds.column_names)
+        if len(split_ds) == 0:
+            raise ValueError("No TED talk could be split into line-aligned sentence pairs")
+        logger.info(f"Split {talks} talks into {len(split_ds)} aligned sentence pairs")
+        return super().prepare_split(split_ds)
+
 class MultiLexSumDataset(CorpusDataset):
     def __init__(self, cfg):
         super().__init__(cfg)
