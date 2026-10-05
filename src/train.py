@@ -1,20 +1,10 @@
-import dataclasses
 import hydra
-import torch
 from hydra.utils import instantiate
 from loguru import logger
 from omegaconf import DictConfig
-from src.utils.dataloader import get_dataloader
+from src.utils.dataloader import get_dataloaders
 from src.utils.utils import instantiate_callbacks, instantiate_loggers
 import pytorch_lightning as pl
-
-
-@dataclasses.dataclass
-class Dataloaders:
-    dataload_train: torch.utils.data.DataLoader
-    dataload_eval_train: torch.utils.data.DataLoader
-    dataload_eval_val: torch.utils.data.DataLoader
-    dataload_eval_test: torch.utils.data.DataLoader
 
 
 def initialize(cfg: DictConfig):
@@ -25,30 +15,34 @@ def initialize(cfg: DictConfig):
     # Instantiate loggers and callbacks
     train_logger = instantiate_loggers(cfg.get("logger"))
     callbacks = instantiate_callbacks(cfg.get("callbacks"))
-    
+
     # Instantiate the trainer using the Hydra configuration
     trainer = instantiate(cfg.trainer, logger=train_logger, callbacks=callbacks)
-    
-    # Load dataloaders for training and evaluation
-    dataload_train = get_dataloader(cfg.data, split="train", batch_size=cfg.params.batch_size)
-    dataload_eval_train = get_dataloader(cfg.data, split="val", batch_size=cfg.params.batch_size)
-    dataload_eval_val = get_dataloader(cfg.data, split="val", batch_size=cfg.params.batch_size)
-    dataload_eval_test = get_dataloader(cfg.data, split="test", batch_size=cfg.params.batch_size)
-    
-    dataloaders = Dataloaders(dataload_train, dataload_eval_train, dataload_eval_val, dataload_eval_test)
+
+    # Load, split and tokenize the dataset once for all three dataloaders
+    dataloaders = get_dataloaders(cfg.data, batch_size=cfg.params.batch_size)
     return model, trainer, dataloaders
 
 
 def train_model(cfg: DictConfig):
     logger.info("Starting train_model function...")
-    
+
     # Initialize the components needed for training
     model, trainer, dataloaders = initialize(cfg)
 
-    # Train the model using the trainer
-    trainer.fit(model, dataloaders.dataload_train, dataloaders.dataload_eval_train)
-    
-    logger.info("Training completed.")
+    if cfg.get("train"):
+        # ckpt_path resumes training from a checkpoint when set
+        trainer.fit(model, dataloaders.train, dataloaders.val, ckpt_path=cfg.get("ckpt_path"))
+        logger.info("Training completed.")
+
+    if cfg.get("test"):
+        # Evaluate the best checkpoint (by the checkpoint callback's monitored metric) if one was saved
+        ckpt_path = "best" if cfg.get("train") and trainer.checkpoint_callback else cfg.get("ckpt_path")
+        if ckpt_path == "best" and not trainer.checkpoint_callback.best_model_path:
+            ckpt_path = None
+        logger.info(f"Testing with checkpoint: {ckpt_path or 'current weights'}")
+        trainer.test(model, dataloaders.test, ckpt_path=ckpt_path)
+
     return model
 
 

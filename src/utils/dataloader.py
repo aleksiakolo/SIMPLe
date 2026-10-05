@@ -1,3 +1,4 @@
+import dataclasses
 import re
 from loguru import logger
 import torch
@@ -210,48 +211,46 @@ class MultiLexSumDataset(CorpusDataset):
         }
 
 
-def get_dataloader(cfg, split="train", batch_size=2, shuffle=True, num_workers=2, persistent_workers=True):
-    """
-    Function to create a DataLoader for the correct dataset class based on the configuration.
-    
-    Args:
-        cfg: Configuration object.
-        split (str): Which split to load ('train', 'val', or 'test').
-        batch_size (int): Batch size for the DataLoader.
-        shuffle (bool): Whether to shuffle the dataset.
-        num_workers (int): Number of workers for data loading.
-        
-    Returns:
-        DataLoader: A DataLoader for the specified dataset split.
-    """
-    if cfg.dataset.name == "Helsinki-NLP/europarl":
-        dataset = EuroParlDataset(cfg)
-    elif cfg.dataset.name == "IWSLT/ted_talks_iwslt":
-        dataset = TedTalksDataset(cfg)
-    elif cfg.dataset.name == "allenai/multi_lexsum":
-        dataset = MultiLexSumDataset(cfg)
-    else:
-        raise ValueError(f"Unsupported dataset name: {cfg.dataset.name}")
-    
-    train_ds, val_ds, test_ds = dataset.process_and_save()
-    
-    if split == "train":
-        selected_dataset = train_ds
-    elif split == "val":
-        selected_dataset = val_ds
-    elif split == "test" and test_ds is not None:
-        selected_dataset = test_ds
-    else:
-        raise ValueError(f"Invalid split '{split}' specified or test set not available.")
-    
-    dataloader = DataLoader(
-        selected_dataset,
-        batch_size=batch_size,
-        shuffle=shuffle if split == "train" else False,
-        collate_fn=dataset.collate_fn,
-        num_workers=num_workers,
-        persistent_workers=persistent_workers
-    )
-    
-    return dataloader
+@dataclasses.dataclass
+class Dataloaders:
+    train: DataLoader
+    val: DataLoader
+    test: DataLoader
 
+
+DATASET_CLASSES = {
+    "Helsinki-NLP/europarl": EuroParlDataset,
+    "IWSLT/ted_talks_iwslt": TedTalksDataset,
+    "allenai/multi_lexsum": MultiLexSumDataset,
+}
+
+
+def get_dataloaders(cfg, batch_size=2, num_workers=2):
+    """
+    Build train/val/test DataLoaders for the dataset named in the data configuration.
+    The dataset is loaded, split, preprocessed and tokenized once and shared by all three loaders.
+
+    Args:
+        cfg: Data configuration object.
+        batch_size (int): Batch size for the DataLoaders.
+        num_workers (int): Number of workers for data loading.
+
+    Returns:
+        Dataloaders: train (shuffled), val and test DataLoaders.
+    """
+    if cfg.dataset.name not in DATASET_CLASSES:
+        raise ValueError(f"Unsupported dataset name: {cfg.dataset.name}")
+    dataset = DATASET_CLASSES[cfg.dataset.name](cfg)
+    train_ds, val_ds, test_ds = dataset.process_and_save()
+
+    def make_loader(split_ds, shuffle):
+        return DataLoader(
+            split_ds,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            collate_fn=dataset.collate_fn,
+            num_workers=num_workers,
+            persistent_workers=num_workers > 0
+        )
+
+    return Dataloaders(make_loader(train_ds, True), make_loader(val_ds, False), make_loader(test_ds, False))
